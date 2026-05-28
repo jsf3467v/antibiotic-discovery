@@ -35,7 +35,7 @@ pip install -r requirements.txt
 To pull the trained checkpoints (~30 MB total) without retraining from scratch:
 
 ```bash
-huggingface-cli download jsf3467v/antibiotic-discovery --local-dir models
+hf download jsf3467v/antibiotic-discovery --local-dir models
 ```
 
 This fetches `gnn_best.pt`, `policy_final.pt`, `surrogate.pt`, and `policy_prior.pt` into `models/`. With these in place, `evaluate.py`, `eval_rl.py`, and `stat_tests.py` reproduce the paper's tables without any training run.
