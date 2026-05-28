@@ -1,0 +1,44 @@
+# Data (~26 GB, public sources — see README for download instructions)
+Datasets/
+
+# Trained checkpoints (hosted on Hugging Face)
+models/
+
+# Paper PDF and LaTeX source (hosted on Hugging Face)
+Papers/
+
+# Diagnostic script — excluded from public repo
+src/diagnose_rewards.py
+
+# Old README kept locally for project archive — not for public repo
+README1.md
+
+# Atomic checkpoint temp files (from src/train_gnn.py and src/train_rl.py)
+*.tmp
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.coverage
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db

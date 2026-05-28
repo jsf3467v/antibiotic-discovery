@@ -1,0 +1,21 @@
+# Core ML
+torch>=2.0.0
+torch-geometric>=2.4.0
+
+# Scientific stack
+numpy>=1.24
+pandas>=2.0
+scipy>=1.10
+scikit-learn>=1.3
+
+# Cheminformatics (rdkit ships sascorer via RDContribDir, no separate install)
+rdkit>=2023.9.1
+
+# EDA notebook
+matplotlib>=3.7
+seaborn>=0.12
+rapidfuzz>=3.0
+jupyter>=1.0
+
+# Frechet ChemNet Distance (stat_tests.py)
+fcd-torch>=1.0.7
