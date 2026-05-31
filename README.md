@@ -15,7 +15,7 @@ A multi-task GATv2 regressor predicts log10(MIC) for *S. aureus* and *E. coli*, 
 - **Outcome.** 20,031 unique valid molecules. Beats random, hill-climbing, and SMILES-RNN baselines with Bonferroni-corrected *p* < 10⁻¹⁶ (Cliff's δ 0.97, 0.73, 0.05 respectively — the SMILES-RNN significance is sample-size-driven, not practical). GA wins on raw top-10 reward but mode-collapses onto a single Bemis-Murcko scaffold; RL's pool is fully unique with scaffold dominance 0.003 and the lowest Fréchet ChemNet Distance to the active reference (26.1 vs ≥43.8) of any method tested.
 - **Limitations.** ~95% of generated molecules trigger at least one Brenk structural alert and would require medicinal-chemistry refinement before any synthesis. The pipeline does not produce a synthesizable lead. The paper's Limitations section covers the full set of caveats including soft cross-task scaffold leakage and surrogate–GNN agreement (Pearson *r* = 0.52, 63% binary agreement).
 
-## Quick look (no compute required)
+## Quick look
 
 To see the results without running anything:
 
