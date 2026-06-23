@@ -72,7 +72,7 @@ python src/eval_baselines.py
 python src/stat_tests.py
 ```
 
-Outputs land in `results/metrics/` and `results/plots/`, and checkpoints land in `models/`.
+Outputs land in `results/metrics/` and `results/plots/`, and checkpoints land in `models/`. These directories are created on first run and are not part of the repository.
 
 ## Project layout
 
@@ -96,12 +96,14 @@ Outputs land in `results/metrics/` and `results/plots/`, and checkpoints land in
 │   └── stat_tests.py          # Mann-Whitney + KL + FCD
 ├── EDA/
 │   ├── EDA.ipynb              # Data extraction + exploratory analysis
-│   └── plots/                 # EDA figures (PNG)
+│   └── plots/                 # EDA figures; written by the notebook, not tracked
 ├── assets/                    # PNG figures used in this README
-├── Datasets/{raw,processed}/  # Not tracked by git (~26 GB)
-├── models/                    # Trained checkpoints (download from HF)
-└── results/{metrics,plots}/   # Pools, scores, tables, figures
+├── Datasets/{raw,processed}/  # Not tracked (~26 GB); fetch from public sources, see Data
+├── models/                    # Trained checkpoints; not tracked, download from HF
+└── results/{metrics,plots}/   # Created when the pipeline runs; not tracked
 ```
+
+The `results/` tree and `EDA/plots/` are not committed; both are produced by the steps in **Reproducing from scratch** (the EDA notebook writes its figures into `EDA/plots/`, and the pipeline writes scores and tables into `results/`). The trained checkpoints under `models/` regenerate the result tables without retraining, and the paper PDF on Hugging Face holds the final tables and figures.
 
 ## Citation
 
@@ -118,5 +120,3 @@ Outputs land in `results/metrics/` and `results/plots/`, and checkpoints land in
 ## License
 
 The code is released under the MIT License, and the paper PDF under CC BY 4.0. See `LICENSE` for the code terms.
-
-
