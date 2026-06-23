@@ -1,0 +1,14 @@
+# Dependencies for running the test suite under tests/.
+#
+# This pulls in the full project runtime and then adds the test runner, so the
+# CI dependency list can never silently drift out of sync with the code. Any
+# module a test imports has its dependencies installed, because they are the
+# same dependencies the project itself declares.
+#
+# In CI, CPU-only torch is installed first (see .github/workflows/ci.yml).
+# pip treats that already-installed build as satisfying the torch requirement
+# below, so the large default CUDA wheel is never pulled.
+
+-r requirements.txt
+
+pytest>=8.0
