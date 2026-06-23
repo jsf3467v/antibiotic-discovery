@@ -1,6 +1,6 @@
 [![CI](https://github.com/jsf3467v/antibiotic-discovery/actions/workflows/ci.yml/badge.svg)](https://github.com/jsf3467v/antibiotic-discovery/actions/workflows/ci.yml)
 
-# Deep RL with Graph Neural Networks for Antibiotic Discovery
+# Deep Reinforcement Learning with Graph Neural Networks for Antibiotic Discovery
 
 > Final project for the Advanced Machine Learning course, JHU MS in AI program, May 2026.
 
