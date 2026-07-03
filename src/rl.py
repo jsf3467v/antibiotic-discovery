@@ -44,13 +44,9 @@ def mol_potential(mol) -> float:
     atoms = {a.GetAtomicNum() for a in mol.GetAtoms()}
     size = min(n, 30) / 30.0
     hetero = len(atoms & HETEROATOMS) / 3.0
-    try:
-        rings = min(mol.GetRingInfo().NumRings(), 4) / 4.0
-    except Exception:
-        rings = 0.0
     bonds = mol.GetNumBonds()
-    branching = max(min(bonds - n + 1, 3), 0) / 3.0 if bonds > 0 else 0.0
-    return 0.20 * size + 0.15 * hetero + 0.40 * rings + 0.25 * branching
+    cycles = max(min(bonds - n + 1, 3), 0) / 3.0 if bonds > 0 else 0.0
+    return 0.20 * size + 0.15 * hetero + 0.25 * cycles
 
 
 # Environment
@@ -468,6 +464,10 @@ def mol_build_order(smiles):
     """Decompose a molecule into MolEnv build actions via BFS."""
     mol = Chem.MolFromSmiles(smiles)
     if mol is None or mol.GetNumAtoms() < 3:
+        return None
+    try:
+        Chem.Kekulize(mol, clearAromaticFlags=True)
+    except Exception:
         return None
     if any(a.GetSymbol() not in ATOM_SYMBOLS for a in mol.GetAtoms()):
         return None

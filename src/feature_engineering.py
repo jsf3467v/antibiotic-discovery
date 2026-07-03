@@ -167,10 +167,11 @@ def split_dataset(df, train_frac=0.8, val_frac=0.1, seed=42):
 
 def scaffold_split_dataset(df, smiles_col='canonical_smiles',
                            train_frac=0.8, val_frac=0.1, seed=42):
-    """Scaffold-based split: shared scaffolds stay in the same fold."""
+    """Scaffold-based split; ringless molecules stay singletons, not one bucket."""
     scaffolds = df[smiles_col].map(bemis_murcko_scaffold)
-    groups = [sub.index.tolist()
-              for _, sub in scaffolds.groupby(scaffolds, dropna=False)]
+    solo = scaffolds.isna() | (scaffolds == "")
+    keys = scaffolds.mask(solo, "solo:" + df.index.to_series().astype(str))
+    groups = [sub.index.tolist() for _, sub in keys.groupby(keys)]
     rng = np.random.default_rng(seed)
     rng.shuffle(groups)
 

@@ -1,5 +1,5 @@
 """
-Train the four generation baselines: random construction, genetic
+Train the four generation baselines. Random construction, genetic
 algorithm, hill climbing, SMILES.
 """
 
@@ -75,7 +75,7 @@ def random_smiles(max_atoms: int = 30) -> Optional[str]:
 
 
 def mutate(smiles: str) -> Optional[str]:
-    """Single-point mutation: atom-swap or atom-add. None on failure.
+    """Single-point mutation. Atom-swap or atom-add. None on failure.
     Atom-swap requires n>1 so the seed atom can't be silently dropped."""
     mol = Chem.MolFromSmiles(smiles)
     if mol is None or mol.GetNumAtoms() == 0:
@@ -142,12 +142,9 @@ def random_pool(n: int = RANDOM_N) -> List[str]:
     return valid_smiles([random_smiles() for _ in range(n)])
 
 
-# Batched search-time scoring. The GNN potency forward is the
-# dominant cost (kernel-launch bound on MPS at batch=1); batching it
-# across the whole pool and computing the remaining reward components
-# per molecule recovers ~30-40x speedup. Bit-equivalent to per-call
-# evaluation_reward up to FP epsilon (BatchNorm in eval mode is
-# batch-size invariant); eval_baselines.py uses the per-call path.
+# Search-time scoring batches the GNN potency forward (the dominant cost)
+# across the pool. Per-call-equivalent because eval-mode BatchNorm is
+# batch-size invariant. eval_baselines.py uses the canonical per-call path.
 
 def batch_potency(smiles_list: List[str], gnn,
                   device, threshold: float) -> np.ndarray:
@@ -192,7 +189,7 @@ def batch_score(smiles_list: List[str], reward_fn,
 def ga_step(pop: List[str], reward_fn, gnn, device,
             pop_size: int, elite_frac: float,
             mutate_rate: float) -> List[str]:
-    """One GA generation: batched scoring, take elites, breed children.
+    """One GA generation. Batched scoring, take elites, breed children.
     Capped at 4*pop_size breeding attempts so a stalled crossover/mutate
     cannot spin forever on pathological populations."""
     scores = batch_score(pop, reward_fn, gnn, device)
@@ -227,13 +224,12 @@ def genetic_pool(reward_fn, gnn, device,
     return valid_smiles(pop)
 
 
-# Hill climbing (parallel restarts in lockstep so per-step scoring
-# batches across the full restart pool)
+# Hill climbing
 
 def hill_pool(reward_fn, gnn, device,
               restarts: int = HC_RESTARTS,
               steps: int = HC_STEPS) -> List[str]:
-    """Hill-climbing baseline. All restarts step in lockstep; per-step
+    """Hill-climbing baseline. All restarts step in lockstep. Per-step
     scoring is batched across the pool. One molecule per restart."""
     current = [s for s in (random_smiles() for _ in range(restarts))
                if s is not None]
@@ -271,16 +267,17 @@ class SmilesRNN:
     """Character-level SMILES generator. Sampling is fully batched on
     device; decoding to Python strings happens once on CPU at the end."""
 
-    VOCAB = list("CNOSFl()[]=#+-0123456789@Hcnos/\\. ")
     PAD = " "
 
-    def __init__(self, device: torch.device, max_len: int = RNN_MAX_LEN):
+    def __init__(self, device: torch.device, corpus: List[str],
+                 max_len: int = RNN_MAX_LEN):
         self.device = device
         self.max_len = max_len
-        self.char2idx = {c: i for i, c in enumerate(self.VOCAB)}
+        self.vocab = sorted({c for s in corpus for c in s} | {self.PAD})
+        self.char2idx = {c: i for i, c in enumerate(self.vocab)}
         self.idx2char = {i: c for c, i in self.char2idx.items()}
         self.pad_idx = self.char2idx[self.PAD]
-        self.model = CharRNN(len(self.VOCAB)).to(device)
+        self.model = CharRNN(len(self.vocab)).to(device)
 
     def encode_smiles(self, smiles: str) -> List[int]:
         return [self.char2idx.get(c, self.pad_idx) for c in smiles]
@@ -313,7 +310,7 @@ class SmilesRNN:
         """Maximum-likelihood pretrain on a known SMILES set."""
         opt = torch.optim.Adam(self.model.parameters(), lr=lr)
         self.model.train()
-        v = len(self.VOCAB)
+        v = len(self.vocab)
         for _ in range(epochs):
             order = np.random.permutation(len(smiles_list))
             for start in range(0, len(order), batch):
@@ -338,7 +335,7 @@ class SmilesRNN:
             return None
         logits, _ = self.model(x)
         tok = F.cross_entropy(
-            logits.view(-1, len(self.VOCAB)), y.view(-1), reduction="none")
+            logits.view(-1, len(self.vocab)), y.view(-1), reduction="none")
         per_seq = (tok.view(x.size(0), -1) * mask.float()).sum(dim=1)
         per_seq = per_seq / mask.sum(dim=1).clamp(min=1)
         return (per_seq * batch_adv[:per_seq.size(0)]).mean()
@@ -365,10 +362,7 @@ class SmilesRNN:
                 opt.step()
 
     def sample(self, n: int, temperature: float = 0.8) -> List[str]:
-        """Batched autoregressive sampling. Dead sequences keep being
-        forwarded with the last sampled token (cheap on GPU/MPS) but
-        their outputs never get written to `out`, which was initialized
-        to PAD; decoding stops at the first PAD and recovers the right
+        """Batched autoregressive sampling. Decoding stops at the first PAD and recovers the right
         string regardless."""
         self.model.eval()
         start = self.char2idx.get("C", 0)
@@ -411,7 +405,7 @@ def rnn_pool(reward_fn, gnn, device: torch.device,
     """Pretrain on actives, REINFORCE fine-tune against batched reward,
     sample n. The fine-tune scorer batches the GNN forward across the
     per-round draw."""
-    rnn = SmilesRNN(device)
+    rnn = SmilesRNN(device, pretrain_smiles)
     rnn.pretrain(pretrain_smiles)
     scorer = lambda smis: batch_score(smis, reward_fn, gnn, device)
     rnn.finetune(scorer, rounds=rounds, n=finetune_n)
@@ -439,8 +433,7 @@ def pool_path(name: str) -> Path:
 
 def run_pool(name: str, generator: Callable[[], List[str]],
              device: torch.device):
-    """Train one baseline and save its pool. Per-baseline resume via
-    existence check; release device cache after every run because the
+    """Per-baseline resume via existence check. Release device cache after every run because the
     RNN baseline allocates a model on device and MPS does not shrink
     its allocator pool proactively."""
     path = pool_path(name)

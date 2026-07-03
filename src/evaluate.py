@@ -15,11 +15,12 @@ import pandas as pd
 import torch
 from sklearn.metrics import roc_auc_score, average_precision_score
 from rdkit import Chem, DataStructs
-from rdkit.Chem import AllChem, Descriptors, Lipinski
+from rdkit.Chem import Descriptors, Lipinski
 from rdkit.Chem.Scaffolds import MurckoScaffold
 
 from config import ProjectConfig, pick_device, release_cache
 from src.gnn import MultiTaskGNN, log_mic_to_prob_torch
+from src.feature_engineering import morgan_generator
 from src.train_gnn import mic_splits
 
 _cfg = ProjectConfig()
@@ -182,7 +183,7 @@ def tanimoto_to_reference(smiles, ref_fps, radius=2, n_bits=2048):
     mol = Chem.MolFromSmiles(smiles)
     if mol is None:
         return None
-    fp = AllChem.GetMorganFingerprintAsBitVect(mol, radius, nBits=n_bits)
+    fp = morgan_generator(radius, n_bits).GetFingerprint(mol)
     return max(DataStructs.BulkTanimotoSimilarity(fp, ref_fps))
 
 
@@ -219,12 +220,12 @@ def scaffold_diversity(smiles_list):
 def internal_diversity(smiles_list, radius=2, n_bits=2048,
                        max_pairs=5000, seed=42):
     """1 - mean pairwise Tanimoto similarity among valid molecules."""
+    gen = morgan_generator(radius, n_bits)
     fps = []
     for s in smiles_list:
         mol = Chem.MolFromSmiles(s)
         if mol is not None:
-            fps.append(AllChem.GetMorganFingerprintAsBitVect(
-                mol, radius, nBits=n_bits))
+            fps.append(gen.GetFingerprint(mol))
     n = len(fps)
     if n < 2:
         return 0.0

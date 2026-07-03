@@ -97,13 +97,6 @@ class MultiTaskGNN(nn.Module):
             "ecoli": self.head_ecoli(h),
         }
 
-    def probabilities(self, x, edge_index, batch, edge_attr=None,
-                      threshold=10.0):
-        """Per-organism active-class probability via sigmoid wrapper."""
-        log_mic = self.forward(x, edge_index, batch, edge_attr=edge_attr)
-        return {k: log_mic_to_prob_torch(v, threshold)
-                for k, v in log_mic.items()}
-
 
 def multitask_huber_loss(preds, targets, masks, delta=1.0):
     """Masked Huber loss across organism heads, averaged over active tasks."""

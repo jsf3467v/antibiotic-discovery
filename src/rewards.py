@@ -11,13 +11,13 @@ import pandas as pd
 import torch
 import torch.nn as nn
 from rdkit import Chem, DataStructs
-from rdkit.Chem import AllChem, QED
+from rdkit.Chem import QED
 from torch_geometric.data import Batch
 from typing import List, Optional
 
 from config import RewardWeights, CompositionConfig, ORGANISM_KEYS, ProjectConfig
 from src.gnn import log_mic_to_prob_torch
-from src.feature_engineering import smiles_to_graph
+from src.feature_engineering import smiles_to_graph, morgan_generator
 
 try:
     from rdkit.Chem import RDConfig
@@ -38,8 +38,8 @@ class FingerprintIndex:
         for s in smiles_list:
             mol = Chem.MolFromSmiles(s)
             if mol is not None:
-                self.fps.append(AllChem.GetMorganFingerprintAsBitVect(
-                    mol, radius, nBits=n_bits))
+                self.fps.append(morgan_generator(radius, n_bits)
+                                .GetFingerprint(mol))
         self.radius = radius
         self.n_bits = n_bits
 
@@ -57,7 +57,7 @@ def fp_array(smiles: str, n_bits: int = 2048) -> Optional[np.ndarray]:
     mol = Chem.MolFromSmiles(smiles)
     if mol is None:
         return None
-    fp = AllChem.GetMorganFingerprintAsBitVect(mol, 2, nBits=n_bits)
+    fp = morgan_generator(2, n_bits).GetFingerprint(mol)
     arr = np.zeros(n_bits, dtype=np.uint8)
     DataStructs.ConvertToNumpyArray(fp, arr)
     return arr
@@ -68,8 +68,7 @@ def morgan_pair(smiles: str, radius: int = 2, n_bits: int = 2048):
     mol = Chem.MolFromSmiles(smiles)
     if mol is None:
         return None, None
-    return mol, AllChem.GetMorganFingerprintAsBitVect(
-        mol, radius, nBits=n_bits)
+    return mol, morgan_generator(radius, n_bits).GetFingerprint(mol)
 
 
 # Per-organism potency surrogate

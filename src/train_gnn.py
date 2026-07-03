@@ -7,6 +7,8 @@ Evaluation lives in evaluate.py.
 import sys
 sys.path.insert(0, str(__import__('pathlib').Path(__file__).resolve().parent.parent))
 
+import hashlib
+
 import numpy as np
 import pandas as pd
 import torch
@@ -52,12 +54,18 @@ def stamp_labels(graph, organism_key, label, log_mic):
     return graph
 
 
+def cache_tag(smiles):
+    """Short content hash so a changed split invalidates its own cache."""
+    joined = "\n".join(sorted(smiles)).encode()
+    return hashlib.sha1(joined).hexdigest()[:12]
+
+
 def cached_graphs(df, organism_key, split_name):
-    """Cached PyG graphs for one organism and split, suffixed _logmic."""
-    cp = CACHE_DIR / f"{organism_key}_{split_name}_logmic.pt"
+    """Cached PyG graphs for one organism and split, keyed by content."""
+    smiles = df["canonical_smiles"].tolist()
+    cp = CACHE_DIR / f"{organism_key}_{split_name}_{cache_tag(smiles)}.pt"
     if cp.exists():
         return torch.load(cp, weights_only=False)
-    smiles = df["canonical_smiles"].tolist()
     labels = df["label"].values
     log_mics = df["log_mic"].values
     raw = parallel_smiles_to_graphs_ordered(smiles)
@@ -241,7 +249,7 @@ def train():
         eta_min=cfg.train.cosine_eta_min)
     ckpt = fit(model, optimizer, scheduler, trn, val, device)
     release_cache(device)
-    print(f"\nTraining complete. Best checkpoint: {ckpt.name}")
+    print(f"\nComplete. Best checkpoint: {ckpt.name}")
 
 
 if __name__ == "__main__":
