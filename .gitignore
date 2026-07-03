@@ -42,3 +42,9 @@ env/
 # OS
 .DS_Store
 Thumbs.db
+
+# stale diagnostics from the pre-fix (July 1) run
+results/metrics/reward_probes.csv
+results/metrics/reward_landscape.csv
+results/metrics/growth_gradient.csv
+results/metrics/gnn_test_metrics.csv
