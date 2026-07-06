@@ -188,3 +188,24 @@ def scaffold_split_dataset(df, smiles_col='canonical_smiles',
     return (df.loc[pick(in_train)],
             df.loc[pick(in_val)],
             df.loc[pick(~in_train & ~in_val)])
+
+
+def scaffold_fold_labels(smiles, train_frac=0.8, val_frac=0.1, seed=42):
+    """One fold per unique SMILES, shared across inputs so a scaffold never
+    crosses folds between organisms."""
+    uniq = pd.Series(pd.unique(pd.Series(smiles)))
+    scaff = uniq.map(bemis_murcko_scaffold)
+    solo = scaff.isna() | (scaff == "")
+    key = scaff.mask(solo, "solo:" + uniq.astype(str))
+    groups = [sub.index.to_numpy() for _, sub in key.groupby(key)]
+    rng = np.random.default_rng(seed)
+    rng.shuffle(groups)
+    sizes = np.array([len(g) for g in groups], dtype=np.int64)
+    prefix = np.concatenate([[0], np.cumsum(sizes)])[:-1]
+    n = len(uniq)
+    train_end, val_end = int(n * train_frac), int(n * (train_frac + val_frac))
+    labels = np.empty(n, dtype=object)
+    for members, start in zip(groups, prefix):
+        labels[members] = ("train" if start < train_end
+                           else "val" if start < val_end else "test")
+    return pd.Series(labels, index=uniq.values)

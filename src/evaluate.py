@@ -170,6 +170,21 @@ def component_breakdown(top_smiles: List[str], reward_fn) -> dict:
 
 # Generation-set quality
 
+def unique_canonical(smiles_list):
+    """Canonical SMILES with parse failures and duplicates removed, order kept.
+    Applied to every pool before scoring so methods compare on one basis."""
+    seen, out = set(), []
+    for s in smiles_list:
+        mol = Chem.MolFromSmiles(s)
+        if mol is None:
+            continue
+        canon = Chem.MolToSmiles(mol)
+        if canon not in seen:
+            seen.add(canon)
+            out.append(canon)
+    return out
+
+
 def validity_rate(smiles_list):
     if not smiles_list:
         return 0.0

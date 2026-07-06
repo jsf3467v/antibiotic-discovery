@@ -24,9 +24,9 @@ import torch
 from config import ProjectConfig, pick_device, release_cache
 from src.rewards import evaluation_reward
 from src.evaluate import (TOP_N, COMPONENT_KEYS,
-                          trained_gnn, scored_descending,
+                          trained_gnn, scored_descending, unique_canonical,
                           pool_summary, component_breakdown,
-                          validity_rate, scaffold_diversity,
+                          scaffold_diversity,
                           internal_diversity, lipinski_pass_rate)
 
 cfg = ProjectConfig()
@@ -77,10 +77,9 @@ def fresh_scores(name: str, smiles: List[str],
 
 
 def quality_metrics(smiles: List[str]) -> dict:
-    """Validity, scaffold/internal diversity, Lipinski pass rate.
+    """Scaffold/internal diversity and Lipinski pass rate on the unique pool.
     Novelty against DrugBank is in Table 3 components, not duplicated."""
-    return {"validity": validity_rate(smiles),
-            "scaffold_diversity": scaffold_diversity(smiles),
+    return {"scaffold_diversity": scaffold_diversity(smiles),
             "internal_diversity": internal_diversity(smiles),
             "lipinski_pass": lipinski_pass_rate(smiles)}
 
@@ -122,12 +121,10 @@ def print_table_3(rows: List[dict]):
 
 
 def print_quality(rows: List[dict]):
-    print("\nQuality:")
-    print(f"  {'method':<20} {'validity':>9} {'scaff':>6} "
-          f"{'intdiv':>7} {'lipinski':>9}")
+    print("\nQuality (unique pool):")
+    print(f"  {'method':<20} {'scaff':>6} {'intdiv':>7} {'lipinski':>9}")
     for r in rows:
-        print(f"  {r['method']:<20} {r['validity']:>9.4f} "
-              f"{r['scaffold_diversity']:>6.4f} "
+        print(f"  {r['method']:<20} {r['scaffold_diversity']:>6.4f} "
               f"{r['internal_diversity']:>7.4f} "
               f"{r['lipinski_pass']:>9.4f}")
 
@@ -150,11 +147,11 @@ def main():
     reward_fn = evaluation_reward(gnn, device)
     t2_rows, t3_rows, qm_rows = [], [], []
     for name in BASELINES:
-        smiles = csv_pool(name)
+        smiles = unique_canonical(csv_pool(name))
         if not smiles:
             print(f"  {name}: missing or empty, skipping")
             continue
-        print(f"  {name}: {len(smiles):,} mols")
+        print(f"  {name}: {len(smiles):,} unique mols")
         t2, t3, qm = evaluate_one(name, smiles, reward_fn)
         t2_rows.append(t2)
         t3_rows.append(t3)

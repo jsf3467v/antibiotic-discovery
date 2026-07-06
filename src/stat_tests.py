@@ -181,13 +181,6 @@ def filter_pass_rate(smiles_list: List[str], catalog_name: str
     return passed / valid if valid > 0 else 0.0
 
 
-def uniqueness_rate(smiles_list: List[str]) -> float:
-    canon = [Chem.MolToSmiles(m) for m in
-             (Chem.MolFromSmiles(s) for s in smiles_list)
-             if m is not None]
-    return len(set(canon)) / len(canon) if canon else 0.0
-
-
 def fcd_distance(pool_smiles: List[str],
                  reference_smiles: List[str], device: str) -> float:
     try:
@@ -227,7 +220,6 @@ def distribution_row(name: str, smiles_list: List[str],
             "fcd": fcd_distance(smiles_list, reference_smiles,
                                 FCD_DEVICE),
             "scaffold_dominance": largest_scaffold_fraction(smiles_list),
-            "uniqueness": uniqueness_rate(smiles_list),
             "pains_pass": filter_pass_rate(smiles_list, "PAINS"),
             "brenk_pass": filter_pass_rate(smiles_list, "BRENK")}
 
@@ -332,13 +324,12 @@ def print_significance(rows: List[dict]):
 def print_distribution(rows: List[dict]):
     print("\nDistribution metrics - vs active antibiotics reference:")
     print(f"  {'pool':<20} {'kl':>7} {'fcd':>8} {'scaff_dom':>10} "
-          f"{'unique':>7} {'pains':>7} {'brenk':>7}")
+          f"{'pains':>7} {'brenk':>7}")
     for r in rows:
         fcd_str = (f"{r['fcd']:>8.3f}" if not np.isnan(r['fcd'])
                    else f"{'n/a':>8}")
         print(f"  {r['pool']:<20} {r['property_kl']:>7.3f} {fcd_str} "
               f"{r['scaffold_dominance']:>10.4f} "
-              f"{r['uniqueness']:>7.3f} "
               f"{r['pains_pass']:>7.3f} {r['brenk_pass']:>7.3f}")
 
 

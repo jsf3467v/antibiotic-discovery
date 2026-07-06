@@ -23,9 +23,9 @@ import torch
 from config import ProjectConfig, pick_device, release_cache
 from src.rewards import evaluation_reward
 from src.evaluate import (TOP_N, COMPONENT_KEYS,
-                          trained_gnn, scored_descending,
+                          trained_gnn, scored_descending, unique_canonical,
                           pool_summary, component_breakdown,
-                          validity_rate, scaffold_diversity,
+                          scaffold_diversity,
                           internal_diversity, lipinski_pass_rate,
                           novelty_fraction, metrics_csv)
 
@@ -80,8 +80,7 @@ def quality_metrics(smiles: List[str], drugbank_fps) -> dict:
     """Validity, scaffold/internal diversity, Lipinski, novelty vs
     DrugBank. Internal diversity caps pairs at 5,000 internally so
     the 20k+-molecule pool stays bounded."""
-    return {"validity": validity_rate(smiles),
-            "scaffold_diversity": scaffold_diversity(smiles),
+    return {"scaffold_diversity": scaffold_diversity(smiles),
             "internal_diversity": internal_diversity(smiles),
             "lipinski_pass": lipinski_pass_rate(smiles),
             "novelty_vs_drugbank": novelty_fraction(smiles, drugbank_fps)}
@@ -128,12 +127,12 @@ def main():
     print(f"Device: {device}")
     torch.manual_seed(cfg.train.seed)
     np.random.seed(cfg.train.seed)
-    smiles = rl_pool_smiles()
+    smiles = unique_canonical(rl_pool_smiles())
     if not smiles:
         print("No RL pool found at "
               f"{pool_csv()}. Run train_rl.py first.")
         return
-    print(f"RL pool: {len(smiles):,} mols")
+    print(f"RL pool: {len(smiles):,} unique mols")
     gnn = trained_gnn(device)
     reward_fn = evaluation_reward(gnn, device)
     hit = cached_scores()

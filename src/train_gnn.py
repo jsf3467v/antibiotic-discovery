@@ -19,8 +19,7 @@ from config import ProjectConfig, pick_device, release_cache
 from src.gnn import MultiTaskGNN, multitask_huber_loss
 from src.feature_engineering import (
     parallel_smiles_to_graphs_ordered,
-    scaffold_split_dataset,
-    split_dataset,
+    scaffold_fold_labels,
 )
 
 cfg = ProjectConfig()
@@ -76,29 +75,40 @@ def cached_graphs(df, organism_key, split_name):
     return graphs
 
 
-def mic_splits(batch_size, seed, device):
-    """Train/val/test DataLoaders plus aggregated-train class balance."""
+def graph_splits(frames, seed):
+    """Per-fold graph lists and train class balance under one joint scaffold map."""
+    labels = scaffold_fold_labels(
+        pd.concat([f["canonical_smiles"] for f in frames.values()]),
+        cfg.data.train_frac, cfg.data.val_frac, seed)
     splits = {"train": [], "val": [], "test": []}
     balance = {}
-    for org in cfg.data.organisms:
+    for org, df in frames.items():
         tag = "saureus" if "aureus" in org else "ecoli"
-        df = aggregated_organism(org, cfg.data.mic_threshold)
-        if cfg.data.scaffold_split:
-            trn, val, tst = scaffold_split_dataset(df, seed=seed)
-        else:
-            trn, val, tst = split_dataset(df, seed=seed)
-        balance[tag] = float(trn["label"].mean())
-        splits["train"].extend(cached_graphs(trn, tag, "train"))
-        splits["val"].extend(cached_graphs(val, tag, "val"))
-        splits["test"].extend(cached_graphs(tst, tag, "test"))
+        fold = df["canonical_smiles"].map(labels)
+        for name in splits:
+            part = df[fold == name]
+            if name == "train":
+                balance[tag] = float(part["label"].mean())
+            splits[name].extend(cached_graphs(part, tag, name))
+    return splits, balance
 
+
+def loader_kwargs(device):
     if device.type == "cuda":
-        kw = {"num_workers": cfg.train.num_workers, "pin_memory": True,
-              "persistent_workers": cfg.train.num_workers > 0}
-    else:
-        kw = {"num_workers": 0, "pin_memory": False}
-    loaders = {}
+        return {"num_workers": cfg.train.num_workers, "pin_memory": True,
+                "persistent_workers": cfg.train.num_workers > 0}
+    return {"num_workers": 0, "pin_memory": False}
+
+
+def mic_splits(batch_size, seed, device):
+    """Train/val/test DataLoaders plus train class balance. One scaffold-to-fold
+    map spans both organisms so no scaffold crosses tasks."""
+    frames = {org: aggregated_organism(org, cfg.data.mic_threshold)
+              for org in cfg.data.organisms}
+    splits, balance = graph_splits(frames, seed)
+    kw = loader_kwargs(device)
     rng = np.random.default_rng(seed)
+    loaders = {}
     for name, data in splits.items():
         rng.shuffle(data)
         loaders[name] = DataLoader(data, batch_size=batch_size,
