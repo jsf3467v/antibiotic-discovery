@@ -355,15 +355,16 @@ def print_quintile_table(df: pd.DataFrame):
               f"{r['size']:>6.1f} {r['composition']:>6.3f}")
 
 
-def write_csvs(sig_rows, dist_rows, dynamics_df):
+def write_csvs(sig_rows, dist_rows, phase_df, quintile_df):
     out = cfg.paths.metrics
     pd.DataFrame(sig_rows).to_csv(
         out / "stat_tests_significance.csv", index=False)
     pd.DataFrame(dist_rows).to_csv(
         out / "stat_tests_distribution.csv", index=False)
-    if dynamics_df is not None:
-        dynamics_df.to_csv(
-            out / "stat_tests_training_dynamics.csv", index=False)
+    if phase_df is not None:
+        phase_df.to_csv(out / "stat_tests_phase.csv", index=False)
+    if quintile_df is not None:
+        quintile_df.to_csv(out / "stat_tests_quintile.csv", index=False)
 
 
 def cached_pools() -> Optional[Tuple[List[str], np.ndarray, dict]]:
@@ -409,7 +410,7 @@ def main():
     if phase_df is not None:
         print_phase_table(phase_df)
         print_quintile_table(quintile_df)
-    write_csvs(sig_rows, dist_rows, quintile_df)
+    write_csvs(sig_rows, dist_rows, phase_df, quintile_df)
     print(f"\nSaved to {cfg.paths.metrics}")
 
 

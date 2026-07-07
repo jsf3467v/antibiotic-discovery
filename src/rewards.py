@@ -249,7 +249,7 @@ class RewardFunction:
                  drugbank_index: FingerprintIndex,
                  card_index: FingerprintIndex,
                  training_index: Optional[FingerprintIndex] = None,
-                 weights: RewardWeights = RewardWeights(),
+                 weights: Optional[RewardWeights] = None,
                  size_center: float = 8.0,
                  size_steepness: float = 0.5,
                  gate_floor: float = 0.0,
@@ -262,7 +262,7 @@ class RewardFunction:
         self.drugbank = drugbank_index
         self.card = card_index
         self.training = training_index
-        self.w = weights
+        self.w = weights if weights is not None else RewardWeights()
         self.size_center = size_center
         self.size_steepness = size_steepness
         self.gate_floor = gate_floor

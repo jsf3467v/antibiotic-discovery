@@ -29,15 +29,18 @@ molecule size from 25 to 30 heavy atoms, and finally expanding the best candidat
 reward calls, keeping the expensive GNN reward for final scoring. The reward combines predicted potency, drug-likeness, synthetic 
 accessibility, novelty relative to DrugBank, and resistance evasion against CARD.
 
-The run generated 20,032 unique valid molecules and significantly outperformed the random, hill-climbing, and genetic-algorithm baselines, 
-with Bonferroni-corrected p-values below $10^{-16}$ against the first two and $1.2 \times 10^{-4}$ against the genetic algorithm. 
-Effect sizes give a more realistic measure, with Cliff's $\delta$ of 0.98 against random, 0.82 against hill climbing, and 0.38 against 
-the genetic algorithm. The character-level SMILES-RNN, once its vocabulary was corrected, reached a higher full-distribution reward than 
-the agent, with Cliff's $\delta$ of $-0.55$, but it did so through synthetic accessibility rather than potency, and the agent kept the 
-higher top-ten reward of 0.57 against 0.52. The genetic algorithm converges on a single Bemis-Murcko scaffold and yields no Lipinski-compliant 
-molecules, so the agent now clearly exceeds it on reward as well. On resemblance to real antibiotics the agent leads every method, with a scaffold dominance of 0.01, the lowest Fréchet ChemNet Distance to the active reference at 24.1 against 44 or higher for every other pool, and the closest match to the reference on physicochemical properties. The central result is this separation between aggregate reward, where the SMILES-RNN leads, and resemblance to known antibiotics, where the agent leads.
+The run generated 20,032 unique valid molecules and significantly outperformed the random and hill-climbing baselines, 
+with Bonferroni-corrected p-values below $10^{-16}$ against both. Effect sizes give a more realistic measure, with Cliff's $\delta$ 
+of 0.98 against random and 0.84 against hill climbing. Two baselines reach a higher full-distribution reward than the agent, each by 
+collapsing onto a narrow scaffold set. The genetic algorithm leads with Cliff's $\delta$ of $-0.60$, converging on a single Bemis-Murcko 
+scaffold. The character-level SMILES-RNN, once its start token was corrected, leads with Cliff's $\delta$ of $-0.77$ and a slightly higher 
+top-ten reward of 0.55 against 0.54, but it does so through potency on a low-diversity pool, with a scaffold diversity of 0.09 against the 
+agent's 0.76. On resemblance to real antibiotics the agent leads every method, with a scaffold dominance of 0.12, the lowest Fréchet 
+ChemNet Distance to the active reference at 24.5 against 44 or higher for every other pool, and the closest match to the reference on 
+physicochemical properties. The central result is this separation between aggregate reward, where the collapsed SMILES-RNN and 
+genetic-algorithm pools lead, and resemblance to known antibiotics, where the agent leads.
 
-The honest caveat is that about 92 percent of the generated molecules trigger at least one Brenk structural alert and require medicinal-chemistry cleanup before synthesis. Therefore, the pipeline mainly shows the search process rather than providing a ready-to-synthesize lead compound. A further caveat concerns the surrogate that stands in for the graph network during rollouts. It agrees with the graph network only weakly on the generated pool, with a Pearson correlation of $r = 0.22$ at 56 percent binary agreement, while agreeing more closely on in-distribution chemistry, at $r = 0.57$ with 68 percent agreement. The agent's performance under the full reward therefore rests more on the structural reward terms and the behavior-cloned prior than on surrogate-guided potency. The paper's Limitations section discusses these points in more detail.
+The honest caveat is that about 93 percent of the generated molecules trigger at least one Brenk structural alert and require medicinal-chemistry cleanup before synthesis. Therefore, the pipeline mainly shows the search process rather than providing a ready-to-synthesize lead compound. A further caveat concerns the surrogate that stands in for the graph network during rollouts. It agrees with the graph network only weakly on the generated pool, with a Pearson correlation of $r = 0.25$ at 60 percent binary agreement, while agreeing more closely on in-distribution chemistry, at $r = 0.57$ with 68 percent agreement. The agent's performance under the full reward therefore rests more on the structural reward terms and the behavior-cloned prior than on surrogate-guided potency. The paper's Limitations section discusses these points in more detail.
 
 ## Paper
 
@@ -103,6 +106,9 @@ python src/eval_baselines.py
 
 # 8. Statistical comparison + distributional metrics (~10 min)
 python src/stat_tests.py
+
+# 9. Surrogate-vs-GNN agreement on the pool (diagnostic) (~2 min)
+python src/agreement.py
 ```
 
 Scores, tables, and metrics are written into `results/` and committed to the repository, so the reported numbers can be inspected 
@@ -128,7 +134,8 @@ are created on the first run and are not committed. Download the checkpoints fro
 │   ├── evaluate.py            # GNN test metrics + shared eval utils
 │   ├── eval_rl.py             # RL pool evaluation
 │   ├── eval_baselines.py      # Baseline pool evaluation
-│   └── stat_tests.py          # Mann-Whitney + KL + FCD
+│   ├── stat_tests.py          # Mann-Whitney + KL + FCD
+│   └── agreement.py           # Surrogate-vs-GNN agreement on the pool
 ├── EDA/
 │   ├── EDA.ipynb              # Data extraction + exploratory analysis
 │   └── plots/                 # EDA figures; written by the notebook, not tracked

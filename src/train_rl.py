@@ -36,7 +36,7 @@ from src.feature_engineering import smiles_to_graph
 from src.rewards import (PotencySurrogate, fp_array,
                          training_reward, evaluation_reward)
 from src.rl import (MolPolicy, VecMolEnv, PPOTrainer, ExpertStep,
-                    expert_trajectory, bool_mask,
+                    expert_trajectory,
                     node_kind_tensors, node_action_stats)
 
 cfg = ProjectConfig()
@@ -107,16 +107,20 @@ def trained_gnn(device) -> MultiTaskGNN:
 
 
 def transfer_encoder(policy: MolPolicy, gnn: MultiTaskGNN) -> int:
-    """Copy GNN encoder weights into policy encoder where shapes match."""
+    """Copy GNN conv and projection weights into the policy encoder.
+    Norm layers differ (BatchNorm vs LayerNorm), so their affines are
+    left at the policy's own initialization."""
     src = gnn.encoder.state_dict()
     dst = policy.encoder.state_dict()
-    transferred = 0
+    moved = 0
     for key in dst:
+        if key.startswith("norms."):
+            continue
         if key in src and src[key].shape == dst[key].shape:
             dst[key] = src[key].clone()
-            transferred += 1
+            moved += 1
     policy.encoder.load_state_dict(dst)
-    return transferred
+    return moved
 
 
 # Surrogate training - per-organism log10(MIC))
@@ -491,26 +495,6 @@ def maybe_log(episode, recent_rewards, size_center, trainer,
           f"kl={trainer.kl_coef:.3f}  replay={len(trainer.replay)}{nan_str}")
 
 
-def maybe_retrain_surrogate(reward_fn, trainer, ep,
-                            all_generated, label: str):
-    """Retrain surrogate when interval hits and enough unique RL outputs are available."""
-    sc = cfg.surrogate
-    if ep == 0 or not fires_now(ep, sc.retrain_interval, trainer.cfg.n_envs):
-        return
-    rl_smi = deduplicated_valid(all_generated[-5000:])
-    if len(rl_smi) < sc.retrain_min_unique:
-        print(f"\n  Skip surrogate retrain ({label}): "
-              f"only {len(rl_smi)} unique RL mols")
-        return
-    print(f"\n  Retraining surrogate ({label}, "
-          f"{len(rl_smi)} unique RL mols)")
-    combined = stratified_smiles(
-        sc.n_active, sc.n_inactive, cfg.train.seed) + rl_smi
-    new_surrogate = fit_surrogate(reward_fn.gnn, trainer.device, combined)
-    reward_fn.surrogate = new_surrogate
-    trainer.replay.flush()
-
-
 def maybe_checkpoint(trainer, all_generated, log_rows, ep, resume_at,
                      phase: int, ckpt_path: Path,
                      gate: Optional[TopNGate] = None):
@@ -610,8 +594,6 @@ def phase2_loop(trainer, vec_env, reward_fn, all_generated,
     for ep in range(resume_at, rl.phase2_episodes, rl.n_envs):
         size_c = size_center_phase2(ep, rl)
         reward_fn.size_center = size_c
-        maybe_retrain_surrogate(reward_fn, trainer, ep,
-                                all_generated, "phase 2")
         log_rows.extend(rollout_batch(
             trainer, vec_env, all_generated, recent,
             phase=2, size_center=size_c,

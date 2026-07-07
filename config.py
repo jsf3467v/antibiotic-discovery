@@ -145,8 +145,6 @@ class SurrogateConfig:
     lr: float = 1e-3
     weight_decay: float = 1e-5
     agreement_threshold: float = 0.5
-    retrain_interval: int = 1_000_000
-    retrain_min_unique: int = 500
 
 
 @dataclass
@@ -197,8 +195,6 @@ class RLConfig:
     kl_phase3: float = 0.5
 
     # Phase 3 gate. Top-N is computed under the canonical
-    # evaluation_reward path (rule 16), so the improvement signal
-    # matches what stat_tests.py reports. .
     phase3_top_n: int = 100
     phase3_patience: int = 2
     phase3_eval_every: int = 512

@@ -267,26 +267,30 @@ class SmilesRNN:
     """Character-level SMILES generator. Sampling is fully batched on
     device; decoding to Python strings happens once on CPU at the end."""
 
-    PAD = " "
+    PAD = " "     # doubles as end-of-sequence
+    BOS = "\n"    # start marker; never occurs inside a SMILES string
 
     def __init__(self, device: torch.device, corpus: List[str],
                  max_len: int = RNN_MAX_LEN):
         self.device = device
         self.max_len = max_len
-        self.vocab = sorted({c for s in corpus for c in s} | {self.PAD})
+        self.vocab = sorted({c for s in corpus for c in s}
+                            | {self.PAD, self.BOS})
         self.char2idx = {c: i for i, c in enumerate(self.vocab)}
         self.idx2char = {i: c for c, i in self.char2idx.items()}
         self.pad_idx = self.char2idx[self.PAD]
+        self.bos_idx = self.char2idx[self.BOS]
         self.model = CharRNN(len(self.vocab)).to(device)
 
-    def encode_smiles(self, smiles: str) -> List[int]:
-        return [self.char2idx.get(c, self.pad_idx) for c in smiles]
+    def char_ids(self, smiles: str) -> List[int]:
+        """BOS-framed, PAD-terminated token ids for one SMILES."""
+        body = [self.char2idx.get(c, self.pad_idx) for c in smiles]
+        return [self.bos_idx] + body + [self.pad_idx]
 
     def padded_batch(self, smiles_list: List[str]):
         """Pack one batch into (input, target, mask) tensors. Sequences
-        shorter than 2 tokens after PAD-append are dropped."""
-        encoded = [self.encode_smiles(s + self.PAD) for s in smiles_list]
-        encoded = [e for e in encoded if len(e) >= 2]
+        shorter than 2 tokens are dropped."""
+        encoded = [e for e in map(self.char_ids, smiles_list) if len(e) >= 2]
         if not encoded:
             return None, None, None
         max_t = max(len(e) for e in encoded) - 1
@@ -365,8 +369,8 @@ class SmilesRNN:
         """Batched autoregressive sampling. Decoding stops at the first PAD and recovers the right
         string regardless."""
         self.model.eval()
-        start = self.char2idx.get("C", 0)
-        active = torch.full((n, 1), start, dtype=torch.long, device=self.device)
+        active = torch.full((n, 1), self.bos_idx,
+                            dtype=torch.long, device=self.device)
         out = torch.full((n, self.max_len), self.pad_idx,
                          dtype=torch.long, device=self.device)
         alive = torch.ones(n, dtype=torch.bool, device=self.device)
@@ -392,6 +396,8 @@ class SmilesRNN:
             for idx in row:
                 if idx == self.pad_idx:
                     break
+                if idx == self.bos_idx:
+                    continue
                 chars.append(self.idx2char[int(idx)])
             out.append("".join(chars))
         return out

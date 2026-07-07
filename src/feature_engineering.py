@@ -4,7 +4,6 @@ sys.path.insert(0, str(__import__('pathlib').Path(__file__).resolve().parent.par
 import pandas as pd
 import numpy as np
 from functools import lru_cache
-from itertools import chain
 from rdkit import Chem, DataStructs
 from rdkit.Chem import Descriptors, Lipinski, rdFingerprintGenerator
 from rdkit.Chem.Scaffolds import MurckoScaffold
@@ -163,31 +162,6 @@ def split_dataset(df, train_frac=0.8, val_frac=0.1, seed=42):
     n = len(shuffled)
     t1, t2 = int(n * train_frac), int(n * (train_frac + val_frac))
     return shuffled[:t1], shuffled[t1:t2], shuffled[t2:]
-
-
-def scaffold_split_dataset(df, smiles_col='canonical_smiles',
-                           train_frac=0.8, val_frac=0.1, seed=42):
-    """Scaffold-based split; ringless molecules stay singletons, not one bucket."""
-    scaffolds = df[smiles_col].map(bemis_murcko_scaffold)
-    solo = scaffolds.isna() | (scaffolds == "")
-    keys = scaffolds.mask(solo, "solo:" + df.index.to_series().astype(str))
-    groups = [sub.index.tolist() for _, sub in keys.groupby(keys)]
-    rng = np.random.default_rng(seed)
-    rng.shuffle(groups)
-
-    sizes = np.array([len(g) for g in groups], dtype=np.int64)
-    prefix = np.concatenate([[0], np.cumsum(sizes)])[:-1]
-    n = len(df)
-    train_end = int(n * train_frac)
-    val_end = int(n * (train_frac + val_frac))
-    in_train = prefix < train_end
-    in_val = (~in_train) & (prefix < val_end)
-
-    pick = lambda mask: list(chain.from_iterable(
-        groups[i] for i in np.flatnonzero(mask)))
-    return (df.loc[pick(in_train)],
-            df.loc[pick(in_val)],
-            df.loc[pick(~in_train & ~in_val)])
 
 
 def scaffold_fold_labels(smiles, train_frac=0.8, val_frac=0.1, seed=42):

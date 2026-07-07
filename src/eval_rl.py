@@ -55,12 +55,13 @@ def rl_pool_smiles() -> List[str]:
 
 def cached_scores() -> Optional[Tuple[List[str], np.ndarray]]:
     """Return (sorted_smiles, sorted_scores) from cache, or None when
-    absent or stale relative to the source pool."""
+    absent or stale relative to the pool or the scoring checkpoint."""
     cache = scored_csv()
     if not cache.exists():
         return None
-    src = pool_csv()
-    if src.exists() and src.stat().st_mtime > cache.stat().st_mtime:
+    stamp = cache.stat().st_mtime
+    sources = (pool_csv(), cfg.paths.models / "gnn_best.pt")
+    if any(s.exists() and s.stat().st_mtime > stamp for s in sources):
         return None
     df = pd.read_csv(cache)
     return (df["smiles"].astype(str).tolist(),

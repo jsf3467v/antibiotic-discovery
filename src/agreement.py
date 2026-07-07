@@ -7,6 +7,7 @@ SMILES, so the pool is held out from neither yet biased toward neither.
 """
 
 import sys
+import logging
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -21,6 +22,7 @@ from src.rewards import PotencySurrogate, gnn_batch_log_mic
 from src.evaluate import trained_gnn, unique_canonical
 
 cfg = ProjectConfig()
+logger = logging.getLogger(__name__)
 
 
 def pool_smiles():
@@ -113,25 +115,26 @@ def main():
     cfg.ensure_dirs()
     torch.manual_seed(cfg.train.seed)
     np.random.seed(cfg.train.seed)
-    print(f"Device: {device}")
+    logger.info(f"Device: {device}")
 
     smiles = pool_smiles()
     if not smiles:
-        print("No generated pool found. Run train_rl.py first.")
+        logger.warning("No generated pool found. Run train_rl.py first.")
         return
-    print(f"Generated pool: {len(smiles):,} unique mols")
+    logger.info(f"Generated pool: {len(smiles):,} unique mols")
 
     surr_prob, gnn_prob = potencies(smiles, device)
     if surr_prob is None:
-        print("No molecules scored by both models.")
+        logger.warning("No molecules scored by both models.")
         return
     result = summary(surr_prob, gnn_prob)
-    print(f"Scored: {result['n']:,}   Pearson r: {result['pearson_r']:.4f}   "
-          f"Binary agreement: {result['binary_agreement']:.4f}")
+    logger.info(f"Scored: {result['n']:,}   Pearson r: {result['pearson_r']:.4f}   "
+                f"Binary agreement: {result['binary_agreement']:.4f}")
     out = cfg.paths.metrics / "surrogate_agreement.csv"
     pd.DataFrame([result]).to_csv(out, index=False)
-    print(f"Saved {out.name}")
+    logger.info(f"Saved {out.name}")
 
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s  %(message)s")
     main()

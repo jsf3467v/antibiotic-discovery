@@ -499,6 +499,8 @@ def anchor_mask_by_action(env, action_type, anchor):
         return None
     if action_type == ACT_UPGRADE:
         return env.upgrade_anchor_mask()
+    if action_type == ACT_BOND:
+        return env.bond_anchor_mask()
     return env.anchor_mask()
 
 
@@ -628,13 +630,28 @@ def mol_embeddings(policy, envs, device):
 
 # Parallel rollout (eval mode and no_grad)
 
-def parallel_step(policy, vec_env, active, potentials, buffers, device, scale):
+def advance_env(env, policy, node_emb, graph_emb, device, cpu_g,
+                prev_phi, scale, gamma):
+    """Sample one action, apply it; return (transition, next_phi) or None."""
+    t = sample_action(policy, env, node_emb, graph_emb, device, cpu_g)
+    if t is None:
+        return None
+    done = env.step(t.action_type, t.anchor, t.target)
+    next_phi = 0.0 if done else mol_potential(env.mol)  # zero at terminal
+    t.done = done
+    t.reward = float(np.clip(scale * (gamma * next_phi - prev_phi),
+                             -SHAPING_CLIP, SHAPING_CLIP))
+    return t, next_phi
+
+
+def parallel_step(policy, vec_env, active, potentials, buffers,
+                  device, scale, gamma):
     """One timestep across all active envs with batched encoding."""
     alive = np.where(active)[0]
     if len(alive) == 0:
         return
-    alive_envs = [vec_env.envs[i] for i in alive]
-    nodes, graphs_emb, raw_gs = mol_embeddings(policy, alive_envs, device)
+    nodes, graphs_emb, raw_gs = mol_embeddings(
+        policy, [vec_env.envs[i] for i in alive], device)
     if nodes is None:
         active[alive] = False
         return
@@ -643,24 +660,19 @@ def parallel_step(policy, vec_env, active, potentials, buffers, device, scale):
             active[i] = False
             continue
         cpu_g = raw_gs[k].cpu() if raw_gs[k] is not None else None
-        t = sample_action(
-            policy, vec_env.envs[i], nodes[k], graphs_emb[k], device, cpu_g)
-        if t is None:
+        result = advance_env(vec_env.envs[i], policy, nodes[k],
+                             graphs_emb[k], device, cpu_g,
+                             potentials[i], scale, gamma)
+        if result is None:
             active[i] = False
             continue
-        done = vec_env.envs[i].step(t.action_type, t.anchor, t.target)
-        curr = mol_potential(vec_env.envs[i].mol)
-        shaping = float(np.clip(scale * (curr - potentials[i]),
-                                -SHAPING_CLIP, SHAPING_CLIP))
-        potentials[i] = curr
-        t.done = done
-        t.reward = shaping
+        t, potentials[i] = result
         buffers[i].append(t)
-        if done:
+        if t.done:
             active[i] = False
 
 
-def parallel_rollout(policy, vec_env, reward_fn, shaping_scale, device):
+def parallel_rollout(policy, vec_env, reward_fn, shaping_scale, gamma, device):
     """Collect one episode per env under eval mode and no_grad."""
     n = vec_env.n
     max_steps = vec_env.envs[0].max_steps
@@ -674,7 +686,7 @@ def parallel_rollout(policy, vec_env, reward_fn, shaping_scale, device):
             if not active.any():
                 break
             parallel_step(policy, vec_env, active, potentials, buffers,
-                          device, scale=shaping_scale)
+                          device, shaping_scale, gamma)
     return finalize_episodes(vec_env, buffers, reward_fn)
 
 
@@ -800,7 +812,7 @@ class PPOTrainer:
         """N parallel episodes. Returns [(smiles, raw_reward), ...]."""
         results = parallel_rollout(
             self.policy, vec_env, self.reward_fn,
-            self.shaping_scale, self.device)
+            self.shaping_scale, self.cfg.gamma, self.device)
         episode_returns = []
         for smi, raw, transitions in results:
             self.buffer.extend(transitions)
