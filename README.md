@@ -15,32 +15,45 @@ hill climbing, and a SMILES-RNN, which serve as comparison benchmarks.
 
 ## Summary
 
-The potency model is trained using 78,314 compound-organism data points from ChEMBL, which are median-aggregated from 112,642 raw MIC 
-readings and divided into training, validation, and test sets with an 80/10/10 split based on scaffold, with each scaffold placed in a 
-single fold jointly across both organisms so that no scaffold crosses folds between them. Its encoder consists of a three-layer GATv2 
-network with organism-specific regression heads, trained using a masked Huber loss function. On the held-out test set, it achieves an 
-AUROC of 0.84 for *S. aureus* and 0.86 for *E. coli*. The *E. coli* performance sits just below the noise ceiling estimated from 
-replicate measurements, close to what the labels' inherent variability allows.
+The potency model is developed with 78,314 compound-organism data points from ChEMBL, derived from 112,642 raw MIC readings, and split into training, 
+validation, and test sets in an 80/10/10 ratio based on scaffold. Each scaffold is assigned to a single fold across both organisms to prevent crossing. 
+Its encoder features a three-layer GATv2 network with organism-specific regression heads, trained using a masked Huber loss. On the test set, the model 
+achieves an AUROC of 0.84 for *S. aureus* and 0.86 for *E. coli*. The *E. coli* performance is just below the estimated noise ceiling from replicate measurements. 
+It is nearly matching the limits set by the labels' inherent variability.
 
-The generative agent uses a PPO policy on a GATv2 graph, trained with autoregressive heads that decide what to add and where. 
-It initially mimics behavior from known antibiotics and then is KL-anchored to this prior, enabling exploration without generating 
-nonsensical results. The training follows a three-phase curriculum, starting with broad structural exploration, gradually increasing 
-molecule size from 25 to 30 heavy atoms, and finally expanding the best candidates. A surrogate fingerprint network handles inner-loop 
-reward calls, keeping the expensive GNN reward for final scoring. The reward combines predicted potency, drug-likeness, synthetic 
-accessibility, novelty relative to DrugBank, and resistance evasion against CARD.
+The generative agent employs a PPO policy on a GATv2 graph, trained with autoregressive heads that determine what to add and where. It initially replicates the 
+behavior of known antibiotics and then is anchored to this prior using KL divergence, facilitating exploration while avoiding nonsensical outputs. The training 
+proceeds through three phases, starting with broad structural exploration, then gradually increasing molecule size from 25 to 30 heavy atoms, and finally expanding 
+the top candidates. An inner-loop surrogate fingerprint network manages reward evaluations, reserving the computationally intensive GNN reward for final scoring. 
+The reward combines predicted potency, drug-likeness, synthetic accessibility, novelty compared to DrugBank, and resistance evasion against CARD. The predicted potency 
+is multiplied by an applicability-domain factor, ensuring the reward emphasizes potency only when molecules are close to the training chemistry, reducing the reward for 
+molecules far from this chemical space.
 
-The run generated 20,032 unique valid molecules and significantly outperformed the random and hill-climbing baselines, 
-with Bonferroni-corrected p-values below $10^{-16}$ against both. Effect sizes give a more realistic measure, with Cliff's $\delta$ 
-of 0.98 against random and 0.84 against hill climbing. Two baselines reach a higher full-distribution reward than the agent, each by 
-collapsing onto a narrow scaffold set. The genetic algorithm leads with Cliff's $\delta$ of $-0.60$, converging on a single Bemis-Murcko 
-scaffold. The character-level SMILES-RNN, once its start token was corrected, leads with Cliff's $\delta$ of $-0.77$ and a slightly higher 
-top-ten reward of 0.55 against 0.54, but it does so through potency on a low-diversity pool, with a scaffold diversity of 0.09 against the 
-agent's 0.76. On resemblance to real antibiotics the agent leads every method, with a scaffold dominance of 0.12, the lowest Fréchet 
-ChemNet Distance to the active reference at 24.5 against 44 or higher for every other pool, and the closest match to the reference on 
-physicochemical properties. The central result is this separation between aggregate reward, where the collapsed SMILES-RNN and 
-genetic-algorithm pools lead, and resemblance to known antibiotics, where the agent leads.
+The run generated 20,030 unique valid molecules. Under the canonical reward, the agent significantly exceeded the random and 
+hill-climbing baselines, with Bonferroni-corrected $p$ values below $10^{-16}$. This includes both comparisons; Cliff's $\delta$ is 0.98 and 0.83. 
+On the full reward distribution, the genetic algorithm and the character-level SMILES-RNN scored higher than the agent, with Cliff's 
+$\delta$ of $-0.92$ and $-0.98$. However, each reached that score by collapsing onto a very small set of structures. The genetic algorithm 
+converged to a single Bemis-Murcko scaffold across 100 molecules, and the SMILES-RNN covered only four scaffolds across roughly 13,000 
+molecules. The Mann-Whitney test favors this concentration, rendering it an inappropriate metric for assessing generator quality in these two pools. 
+The number of distinct scaffolds produced by a method is a design goal-relevant metric. Moreover, the agent produced 13,925 distinct scaffolds, 
+and its 100 highest-scoring molecules span 100 distinct scaffolds, while the same counts for the genetic algorithm and the SMILES-RNN are 
+1 and 2. The average reward of the agent's 100 best molecules also exceeds the single highest reward the genetic algorithm reached.
 
-The honest caveat is that about 93 percent of the generated molecules trigger at least one Brenk structural alert and require medicinal-chemistry cleanup before synthesis. Therefore, the pipeline mainly shows the search process rather than providing a ready-to-synthesize lead compound. A further caveat concerns the surrogate that stands in for the graph network during rollouts. It agrees with the graph network only weakly on the generated pool, with a Pearson correlation of $r = 0.25$ at 60 percent binary agreement, while agreeing more closely on in-distribution chemistry, at $r = 0.57$ with 68 percent agreement. The agent's performance under the full reward therefore rests more on the structural reward terms and the behavior-cloned prior than on surrogate-guided potency. The paper's Limitations section discusses these points in more detail.
+Regarding structural quality, the agent outperforms all methods, with scaffold diversity of 0.695 and internal diversity of 0.910. Every molecule 
+it generates is novel compared to the DrugBank antibiotic reference. Over half of the molecules meet at least three of the four Lipinski criteria. 
+Compared with known active antibiotics, the agent's pool is closest, with a Fréchet ChemNet Distance of 24.5, which is lower than the 44+ values 
+reported by other methods. This exhibits the lowest divergence in physicochemical properties. Overall, the key insight is that the combined reward 
+favors the collapsed pools, while the agent excels in maintaining structural diversity and similarity to real antibiotics.
+
+
+Several caveats should be considered. Approximately 94% of the generated molecules activate at least one Brenk structural alert, especially the 
+highest-scoring ones, which tend to be large and contain reactive groups. Therefore, applying a structural alert and drug-likeness filter before 
+selecting molecules for synthesis or docking is recommended. The surrogate model used during rollouts, which replaces the graph network, shows only 
+weak agreement with it on the generated pool, with a Pearson correlation of r=0.23 and 63% binary agreement. This indicates that the agent's full reward 
+behavior relies more on structural reward terms and the behavior-cloned prior than on surrogate-guided potency. These results are based on a single random 
+seed, one data split, one training run for the graph network, and one run per generator, so variability across seeds and splits remains unassessed. The paper's 
+Limitations section discusses these issues further.
+
 
 ## Paper
 

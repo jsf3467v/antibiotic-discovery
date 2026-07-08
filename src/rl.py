@@ -880,7 +880,7 @@ class PPOTrainer:
                          dtype=torch.float32, device=self.device))
 
     def ppo_minibatches(self, transitions, old_lps_t, adv_t, returns_t,
-                        metrics: dict) -> int:
+                        prior_lps_t, metrics: dict) -> int:
         """All PPO minibatch updates over the rollout. Returns batch count."""
         n = 0
         for _ in range(self.cfg.ppo_epochs):
@@ -891,7 +891,7 @@ class PPOTrainer:
                     continue
                 step = self.ppo_grad_step(
                     [transitions[i] for i in bi],
-                    old_lps_t[bi], adv_t[bi], returns_t[bi])
+                    old_lps_t[bi], adv_t[bi], returns_t[bi], prior_lps_t[bi])
                 for k, v in step.items():
                     metrics[k] += v
                 n += 1
@@ -908,14 +908,37 @@ class PPOTrainer:
             self.reeval_replay(replay_trans)
             transitions = transitions + replay_trans
         returns_t, adv_t, old_lps_t = self.rollout_tensors(transitions)
+        prior_lps_t = self.prior_scores(transitions)
         self.policy.train()
         metrics = {"policy_loss": 0.0, "value_loss": 0.0,
                    "entropy": 0.0, "kl_prior": 0.0, "nan_skip": 0.0}
         n = self.ppo_minibatches(
-            transitions, old_lps_t, adv_t, returns_t, metrics)
+            transitions, old_lps_t, adv_t, returns_t, prior_lps_t, metrics)
         return {k: v / max(n, 1) for k, v in metrics.items()}
 
-    def ppo_grad_step(self, batch_trans, old_lp, adv, ret) -> dict:
+    @torch.no_grad()
+    def prior_scores(self, transitions) -> torch.Tensor:
+        """Prior log-probs per transition. The prior is frozen, so these are
+        constant across PPO epochs and computed once per update."""
+        if self.prior is None or self.kl_coef <= 0:
+            return torch.zeros(len(transitions), device=self.device)
+        out = []
+        for start in range(0, len(transitions), 512):
+            chunk = transitions[start:start + 512]
+            batch, all_node, all_graph = self.batch_encode(chunk, self.prior)
+            lps, _, _ = self.batched_scores(
+                chunk, batch, all_node, all_graph, self.prior)
+            out.append(lps)
+        return torch.cat(out)
+
+    def kl_prior(self, prior_lp, new_lps):
+        """Schulman k3 estimate of KL(policy || prior); prior_lp precomputed."""
+        if self.prior is None or self.kl_coef <= 0:
+            return torch.zeros((), device=self.device)
+        log_r = (prior_lp - new_lps).clamp(min=-10.0, max=10.0)
+        return (log_r.exp() - 1 - log_r).mean()
+
+    def ppo_grad_step(self, batch_trans, old_lp, adv, ret, prior_lp) -> dict:
         """Single PPO gradient step on a minibatch with KL-prior penalty."""
         batch, all_node, all_graph = self.batch_encode(batch_trans, self.policy)
         new_lps, new_vals, ents = self.batched_scores(
@@ -925,7 +948,7 @@ class PPOTrainer:
         clipped = ratio.clamp(1 - self.cfg.clip_eps, 1 + self.cfg.clip_eps)
         policy_loss = -torch.min(ratio * adv, clipped * adv).mean()
         value_loss = F.mse_loss(new_vals, ret)
-        kl = self.kl_to_prior(batch_trans, batch, new_lps)
+        kl = self.kl_prior(prior_lp, new_lps)
         loss = (policy_loss + 0.5 * value_loss
                 - self.entropy_coeff * ent
                 + self.kl_coef * kl)
@@ -939,18 +962,5 @@ class PPOTrainer:
         return {"policy_loss": policy_loss.item(),
                 "value_loss": value_loss.item(),
                 "entropy": ent.item(),
-                "kl_prior": float(kl.item()) if isinstance(kl, torch.Tensor) else 0.0,
+                "kl_prior": float(kl.item()),
                 "nan_skip": 0.0}
-
-    def kl_to_prior(self, batch_trans, batch, new_lps):
-        """KL(new || prior) through the Schulman k3 estimator -non-negative."""
-        if self.prior is None or self.kl_coef <= 0:
-            return torch.zeros(1, device=self.device).squeeze()
-        with torch.no_grad():
-            ea = batch.edge_attr if hasattr(batch, "edge_attr") else None
-            all_node_p, all_graph_p = self.prior.encoder(
-                batch.x, batch.edge_index, batch.batch, edge_attr=ea)
-            prior_lps, _, _ = self.batched_scores(
-                batch_trans, batch, all_node_p, all_graph_p, self.prior)
-        log_r = (prior_lps - new_lps).clamp(min=-10.0, max=10.0)
-        return (log_r.exp() - 1 - log_r).mean()

@@ -28,6 +28,9 @@ def cpu_workers() -> int:
 
 
 def pick_device() -> torch.device:
+    forced = os.environ.get("PROJECT_DEVICE")
+    if forced:
+        return torch.device(forced)
     if torch.backends.mps.is_available():
         return torch.device("mps")
     if torch.cuda.is_available():
@@ -69,10 +72,6 @@ class Paths:
         return self.root / "results" / "metrics"
 
     @property
-    def plots(self) -> Path:
-        return self.root / "results" / "plots"
-
-    @property
     def eda_plots(self) -> Path:
         return self.root / "EDA" / "plots"
 
@@ -98,7 +97,7 @@ class GNNConfig:
 class TrainConfig:
     lr: float = 1e-3
     weight_decay: float = 1e-5
-    batch_size: int = 256
+    batch_size: int = 128
     epochs: int = 80
     patience: int = 20
     cosine_eta_min: float = 1e-6
@@ -116,6 +115,7 @@ class DataConfig:
     train_frac: float = 0.8
     val_frac: float = 0.1
     scaffold_split: bool = True
+    max_heavy_atoms: int = 100
     organisms: List[str] = field(default_factory=lambda: list(
         ORGANISM_SOURCE[k] for k in ORGANISM_KEYS))
 
@@ -129,6 +129,17 @@ class CompositionConfig:
         "F": 0.017, "S": 0.013, "Cl": 0.008,
     })
     tau: float = 0.20
+
+
+@dataclass
+class ApplicabilityConfig:
+    """Applicability-domain gate. Proximity of a molecule to the GNN's
+    training chemistry. Below `lo` Tanimoto potency credit is zero, above
+    `hi` it is full, linear between. `n_ref` bounds per-call Tanimoto cost."""
+    lo: float = 0.2
+    hi: float = 0.4
+    floor: float = 0.25
+    n_ref: int = 4096
 
 
 @dataclass
@@ -212,8 +223,8 @@ class RLConfig:
 
 @dataclass
 class RewardWeights:
-    potency: float = 0.30
-    novelty: float = 0.15
+    potency: float = 0.35
+    novelty: float = 0.10
     resistance: float = 0.10
     qed: float = 0.20
     sa_score: float = 0.25
@@ -230,8 +241,10 @@ class ProjectConfig:
     rewards: RewardWeights = field(default_factory=RewardWeights)
     composition: CompositionConfig = field(default_factory=CompositionConfig)
     surrogate: SurrogateConfig = field(default_factory=SurrogateConfig)
+    applicability: ApplicabilityConfig = field(
+        default_factory=ApplicabilityConfig)
 
     def ensure_dirs(self) -> None:
         for d in (self.paths.processed, self.paths.models,
-                  self.paths.metrics, self.paths.plots, self.paths.eda_plots):
+                  self.paths.metrics, self.paths.eda_plots):
             d.mkdir(parents=True, exist_ok=True)

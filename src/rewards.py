@@ -166,16 +166,16 @@ def size_gate(mol, center: float = 8.0, steepness: float = 0.5,
     return floor + (1.0 - floor) * raw
 
 
-def applicability_gate(query_fp, training_index, lo: float = 0.3,
-                       hi: float = 0.5) -> float:
+def applicability_gate(query_fp, training_index, lo: float = 0.2,
+                       hi: float = 0.4, floor: float = 0.0) -> float:
     if training_index is None or not training_index.fps:
         return 1.0
     sim = training_index.max_tanimoto(query_fp)
     if sim >= hi:
         return 1.0
     if sim <= lo or hi <= lo:
-        return 0.0
-    return (sim - lo) / (hi - lo)
+        return floor
+    return floor + (1.0 - floor) * (sim - lo) / (hi - lo)
 
 
 def novelty(query_fp, drugbank_index, midpoint: float = 0.6,
@@ -256,7 +256,9 @@ class RewardFunction:
                  potency_floor: float = 0.0,
                  surrogate: Optional[PotencySurrogate] = None,
                  mic_threshold: float = 10.0,
-                 composition: Optional[CompositionConfig] = None):
+                 composition: Optional[CompositionConfig] = None,
+                 ad_lo: float = 0.2, ad_hi: float = 0.4,
+                 ad_floor: float = 0.0):
         self.gnn = gnn_model
         self.device = device
         self.drugbank = drugbank_index
@@ -269,6 +271,9 @@ class RewardFunction:
         self.potency_floor = potency_floor
         self.surrogate = surrogate
         self.mic_threshold = mic_threshold
+        self.ad_lo = ad_lo
+        self.ad_hi = ad_hi
+        self.ad_floor = ad_floor
         self.atom_symbols, self.atom_ref, self.atom_tau = (
             composition_arrays(composition))
 
@@ -290,15 +295,23 @@ class RewardFunction:
         return self.weighted_total(self.components(mol, fp, smiles))
 
     def components(self, mol, fp, smiles) -> dict:
+        return self.component_scores(mol, fp, self.potency(smiles, fp))
+
+    def component_scores(self, mol, fp, potency: float) -> dict:
+        """Component dict from a precomputed potency probability. Shared by
+        the per-molecule path and batched baseline scoring so both gate,
+        weight, and combine identically."""
         return {
-            "potency": self.potency(smiles, fp),
+            "potency": potency,
             "novelty": novelty(fp, self.drugbank),
             "resistance": resistance(fp, self.card),
             "qed": qed_score(mol),
             "sa": sa_score(mol),
             "size_gate": size_gate(mol, self.size_center,
                                    self.size_steepness, self.gate_floor),
-            "ad_gate": applicability_gate(fp, self.training),
+            "ad_gate": applicability_gate(fp, self.training,
+                                          self.ad_lo, self.ad_hi,
+                                          self.ad_floor),
             "composition": composition_penalty(
                 mol, self.atom_ref, self.atom_symbols, self.atom_tau),
         }
@@ -328,6 +341,53 @@ class RewardFunction:
 cfg = ProjectConfig()
 
 
+def aggregated_organism(stem: str) -> Optional[pd.DataFrame]:
+    """Median log10(MIC) per canonical SMILES, or None if the file is absent."""
+    path = cfg.paths.processed / f"{stem}_mic_data.csv"
+    if not path.exists():
+        return None
+    df = pd.read_csv(path).dropna(subset=["canonical_smiles", "mic_value"])
+    df = df[df["mic_value"] > 0].copy()
+    df["log_mic"] = np.log10(df["mic_value"])
+    return df.groupby("canonical_smiles")["log_mic"].median().reset_index()
+
+
+def active_smiles() -> List[str]:
+    """Deduplicated actives (median log10(MIC) below threshold) across organisms."""
+    log_thr = float(np.log10(cfg.data.mic_threshold))
+    pieces = []
+    for stem in cfg.data.organisms:
+        agg = aggregated_organism(stem)
+        if agg is not None:
+            pieces.append(agg.loc[agg["log_mic"] < log_thr, "canonical_smiles"])
+    if not pieces:
+        return []
+    return pd.concat(pieces).drop_duplicates().tolist()
+
+
+def training_smiles() -> List[str]:
+    """All aggregated compounds across organisms; the GNN's applicability domain."""
+    pieces = []
+    for stem in cfg.data.organisms:
+        agg = aggregated_organism(stem)
+        if agg is not None:
+            pieces.append(agg["canonical_smiles"])
+    if not pieces:
+        return []
+    return pd.concat(pieces).drop_duplicates().tolist()
+
+
+def applicability_index(n_ref: int = 4096) -> "FingerprintIndex":
+    """Applicability-domain index over training chemistry. Deterministic
+    subsample bounds per-call Tanimoto cost and stays identical across runs."""
+    smiles = training_smiles()
+    if len(smiles) > n_ref:
+        rng = np.random.default_rng(cfg.train.seed)
+        pick = rng.choice(len(smiles), size=n_ref, replace=False)
+        smiles = [smiles[i] for i in pick]
+    return FingerprintIndex(smiles)
+
+
 def drugbank_index() -> "FingerprintIndex":
     """DrugBank antibiotics fingerprint index for novelty scoring."""
     df = pd.read_csv(cfg.paths.processed / "drugbank_antibiotics.csv")
@@ -349,11 +409,12 @@ def card_index() -> "FingerprintIndex":
 
 def training_reward(gnn, device,
                     surrogate: "PotencySurrogate") -> "RewardFunction":
-    """RL training reward; surrogate-based potency, no AD gate, size center mutated by the phase loop."""
+    """RL training reward. Surrogate potency, applicability-gated, size center set by the phase loop."""
     return RewardFunction(
         gnn_model=gnn, device=device,
         drugbank_index=drugbank_index(),
         card_index=card_index(),
+        training_index=applicability_index(cfg.applicability.n_ref),
         weights=cfg.rewards,
         size_center=cfg.rl.size_center_phase1,
         size_steepness=cfg.rl.size_steepness,
@@ -362,15 +423,18 @@ def training_reward(gnn, device,
         surrogate=surrogate,
         mic_threshold=cfg.data.mic_threshold,
         composition=cfg.composition,
+        ad_lo=cfg.applicability.lo, ad_hi=cfg.applicability.hi,
+        ad_floor=cfg.applicability.floor,
     )
 
 
 def evaluation_reward(gnn, device) -> "RewardFunction":
-    """Canonical reward for RL/baseline comparison; GNN-direct potency, no AD gate, size center fixed."""
+    """Canonical reward for RL/baseline comparison. GNN-direct potency, applicability-gated, fixed size center."""
     return RewardFunction(
         gnn_model=gnn, device=device,
         drugbank_index=drugbank_index(),
         card_index=card_index(),
+        training_index=applicability_index(cfg.applicability.n_ref),
         weights=cfg.rewards,
         size_center=cfg.rl.size_center_phase2_end,
         size_steepness=cfg.rl.size_steepness,
@@ -378,4 +442,6 @@ def evaluation_reward(gnn, device) -> "RewardFunction":
         potency_floor=0.0,
         mic_threshold=cfg.data.mic_threshold,
         composition=cfg.composition,
+        ad_lo=cfg.applicability.lo, ad_hi=cfg.applicability.hi,
+        ad_floor=cfg.applicability.floor,
     )

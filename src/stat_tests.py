@@ -28,8 +28,8 @@ from rdkit.Chem.Scaffolds import MurckoScaffold
 from scipy.stats import mannwhitneyu
 
 from config import ProjectConfig
-from src.rewards import composition_arrays, composition_penalty, sa_score
-from src.train_rl import active_smiles
+from src.rewards import (composition_arrays, composition_penalty, sa_score,
+                         active_smiles)
 
 cfg = ProjectConfig()
 

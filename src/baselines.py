@@ -12,6 +12,8 @@ warnings.filterwarnings("ignore", message=".*MorganGenerator.*")
 from rdkit import RDLogger
 RDLogger.DisableLog('rdApp.*')
 
+import signal
+
 from pathlib import Path
 from typing import Callable, List, Optional
 
@@ -26,11 +28,8 @@ from rdkit.Chem import RWMol, BRICS
 from config import ProjectConfig, pick_device, release_cache
 from src.gnn import MultiTaskGNN, log_mic_to_prob_torch
 from src.rewards import (evaluation_reward, gnn_batch_log_mic,
-                         morgan_pair, novelty, resistance,
-                         qed_score, sa_score, size_gate,
-                         applicability_gate, composition_penalty)
+                         morgan_pair, active_smiles)
 from src.rl import ATOM_SYMBOLS, MAX_VALENCE
-from src.train_rl import active_smiles
 
 cfg = ProjectConfig()
 
@@ -52,6 +51,32 @@ RNN_MAX_LEN = 80
 
 
 # Molecular operators
+
+# Some BRICS fragment sets send BRICSBuild into a long assembly search
+# before its first complete result. A POSIX wall-clock guard bounds that
+# single call so crossover falls back to mutation instead of stalling.
+class BuildTimeout(Exception):
+    pass
+
+
+def on_build_timeout(signum, frame):
+    raise BuildTimeout
+
+
+signal.signal(signal.SIGALRM, on_build_timeout)
+
+
+def brics_child(mols, limit: float = 0.5):
+    """First BRICS reassembly of the fragments, or None if none arrives
+    within limit seconds or the build fails."""
+    signal.setitimer(signal.ITIMER_REAL, limit)
+    try:
+        return next(BRICS.BRICSBuild(mols), None)
+    except Exception:
+        return None
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+
 
 def random_smiles(max_atoms: int = 30) -> Optional[str]:
     """One molecule via valence-respecting atom-by-atom random walk."""
@@ -113,12 +138,8 @@ def crossover(s1: str, s2: str) -> Optional[str]:
         return mutate(s1 if m1.GetNumAtoms() >= m2.GetNumAtoms() else s2)
     hybrid = list(f1)
     hybrid[np.random.randint(0, len(f1))] = f2[np.random.randint(0, len(f2))]
-    try:
-        built = list(BRICS.BRICSBuild(
-            [Chem.MolFromSmiles(f) for f in hybrid]))
-    except Exception:
-        return mutate(s1)
-    return Chem.MolToSmiles(built[0]) if built else mutate(s1)
+    built = brics_child([Chem.MolFromSmiles(f) for f in hybrid])
+    return Chem.MolToSmiles(built) if built else mutate(s1)
 
 
 def valid_smiles(pool: List[Optional[str]]) -> List[str]:
@@ -157,8 +178,8 @@ def batch_potency(smiles_list: List[str], gnn,
 
 def batch_score(smiles_list: List[str], reward_fn,
                 gnn, device) -> np.ndarray:
-    """One batched GNN forward for potency; remaining components per
-    molecule; combine via reward_fn.weighted_total."""
+    """One batched GNN forward for potency; component assembly and weighting
+    reuse reward_fn so search scores match the canonical evaluation reward."""
     potencies = batch_potency(
         smiles_list, gnn, device, reward_fn.mic_threshold)
     scores = np.zeros(len(smiles_list), dtype=np.float64)
@@ -168,18 +189,7 @@ def batch_score(smiles_list: List[str], reward_fn,
         mol, fp = morgan_pair(smi)
         if mol is None or fp is None:
             continue
-        c = {"potency": float(potencies[i]),
-             "novelty": novelty(fp, reward_fn.drugbank),
-             "resistance": resistance(fp, reward_fn.card),
-             "qed": qed_score(mol),
-             "sa": sa_score(mol),
-             "size_gate": size_gate(mol, reward_fn.size_center,
-                                    reward_fn.size_steepness,
-                                    reward_fn.gate_floor),
-             "ad_gate": applicability_gate(fp, reward_fn.training),
-             "composition": composition_penalty(
-                 mol, reward_fn.atom_ref, reward_fn.atom_symbols,
-                 reward_fn.atom_tau)}
+        c = reward_fn.component_scores(mol, fp, float(potencies[i]))
         scores[i] = reward_fn.weighted_total(c)
     return scores
 
@@ -265,7 +275,7 @@ class CharRNN(nn.Module):
 
 class SmilesRNN:
     """Character-level SMILES generator. Sampling is fully batched on
-    device; decoding to Python strings happens once on CPU at the end."""
+    device. Decoding to Python strings happens once on CPU at the end."""
 
     PAD = " "     # doubles as end-of-sequence
     BOS = "\n"    # start marker; never occurs inside a SMILES string

@@ -9,24 +9,38 @@ tags:
 library_name: pytorch
 ---
 
-# Antibiotic Discovery with Deep RL + Graph Neural Networks
+# Antibiotic Discovery with Deep Reinforcement Learning and Graph Neural Networks
 
-Multi-task GATv2 regressor and three-phase PPO agent that together generate novel antibiotic candidates against *S. aureus* and *E. coli*. Final project for the Advanced Machine Learning course, JHU MS in AI program (May 2026).
+This model is a multi-task GATv2 regressor and a three-phase PPO agent that together generate novel antibiotic candidates against *S. aureus* and *E. coli*. This was a final project for an Advanced Machine Learning course, JHU MS in AI program (May 2026).
 
-**Code, README, and full reproducibility instructions:** [github.com/jsf3467v/antibiotic-discovery](https://github.com/jsf3467v/antibiotic-discovery)
+**Code, README, and full reproducibility instructions** are at [github.com/jsf3467v/antibiotic-discovery](https://github.com/jsf3467v/antibiotic-discovery).
 
 ## Files in this repository
 
-- **`gnn_best.pt`** — trained multi-task GATv2 regressor. Test AUROC 0.84 (*S. aureus*) and 0.86 (*E. coli*) on a scaffold-split test set of 7,874 compounds. The scaffold assignment spans both organisms jointly, so no scaffold crosses folds between them, and the *E. coli* result sits just below the empirical replicate-noise ceiling.
-- **`policy_final.pt`** — final RL policy from phase 3, used to generate the 20,032-molecule candidate pool.
-- **`policy_prior.pt`** — behavior-cloned policy used as the KL anchor during PPO training.
-- **`surrogate.pt`** — fingerprint MLP surrogate, used for fast inner-loop reward calls during rollouts.
-- **`policy_phase1.pt`, `policy_phase2.pt`, `policy_phase3.pt`, `policy_phase3_best.pt`** — per-phase policy snapshots, provided for inspection and not required to reproduce the tables.
-- **`paper.pdf`** — full paper with tables, figures, methodology, results, and discussion.
+- **`gnn_best.pt`**, the trained multi-task GATv2 regressor. Test AUROC is 0.84 (*S. aureus*) and 0.86 (*E. coli*) on a held-out scaffold-split test set. The scaffold assignment spans both organisms jointly, so no scaffold crosses folds between them, 
+and the *E. coli* result sits just below the empirical replicate-noise ceiling.
+- **`policy_final.pt`**, the final reinforcement learning policy from phase 3, used to generate the 20,030-molecule candidate pool.
+- **`policy_prior.pt`**, the behavior-cloned policy used as the KL anchor during PPO training.
+- **`surrogate.pt`**, the fingerprint multilayer perceptron surrogate, used for fast inner-loop reward calls during rollouts.
+- **`policy_phase1.pt`, `policy_phase2.pt`, `policy_phase3.pt`, `policy_phase3_best.pt`**, the per-phase policy snapshots, provided for inspection and not required to reproduce the tables.
+- **`paper.pdf`**, the full paper with tables, figures, methodology, results, and discussion.
 
-## Headline results
+## Results
 
-The RL agent produces 20,032 unique valid molecules and significantly outperforms the random, hill-climbing, and genetic-algorithm baselines, with Bonferroni-corrected *p* below 10^-16 against the first two and 1.2 \times 10^-4 against the genetic algorithm. The character-level SMILES-RNN, once its vocabulary was corrected, reaches a higher full-distribution reward than the agent, though it does so through synthetic accessibility rather than potency, and the agent keeps the higher top-ten reward. On resemblance to known active antibiotics the agent leads every method, with the lowest Fréchet ChemNet Distance of 24.1 against 44 or higher for every other pool. About 92% of generated molecules trigger at least one Brenk structural alert and would require medicinal-chemistry refinement before any synthesis. A fingerprint surrogate stands in for the regressor during rollouts and agrees with it only weakly on the generated pool, at a Pearson correlation of 0.22, while agreeing more closely on in-distribution chemistry at 0.57. The full breakdown, including caveats and limitations, is in the paper.
+The reinforcement learning agent produced 20,030 unique and valid molecules. Under the canonical reward it significantly outperformed the random and hill-climbing baselines, with 
+Bonferroni-corrected \\(p\\) values below \\(10^{-16}\\) in both comparisons and Cliff's \\(\delta\\) of 0.98 and 0.83. The genetic algorithm and the character-level SMILES-RNN 
+reached a higher full-distribution reward than the agent, with Cliff's \\(\delta\\) of \\(-0.92\\) and \\(-0.98\\). However, each collapsed onto a very small set of molecule structures. 
+The genetic algorithm converged to a single Bemis-Murcko scaffold across 100 molecules, and the SMILES-RNN covered only four scaffolds across approximately 13,000 molecules. 
+Because the Mann-Whitney test rewards this concentration, it is not the right measure of generator quality for those two pools. On the count of distinct scaffolds, which matches the 
+design goal, the agent produced 13,925 scaffolds while the genetic algorithm and the SMILES-RNN produced 1 and 4, and the agent's 100 best molecules span 100 distinct scaffolds against 
+1 and 2 for those baselines. The average reward of the agent's 100 best molecules also exceeds the single highest reward the genetic algorithm reached.
+
+The agent's approach closely resembles known active antibiotics, with a Fréchet ChemNet Distance of 24.5 to the reference, the lowest among all pools and well below the 44+ values seen 
+in others. Its physicochemical property divergence is also minimal. It exhibits a scaffold diversity of 0.695 and an internal diversity of 0.910, with every molecule being novel compared 
+to the DrugBank antibiotic reference. Approximately 94% of generated molecules trigger at least one Brenk structural alert, and the most highly scored ones are large and contain reactive groups, 
+suggesting the need for structural-alert and drug-likeness filters before synthesis or docking. The fingerprint surrogate used in rollouts correlates weakly with the regressor on the generated set, 
+with a Pearson correlation of 0.23 and 63% binary agreement. Thus, the agent's behavior relies more on structural reward terms and behavior-cloned priors than on the surrogate-guided potency. 
+These results are from a single seed, data split, and run, so variance is not fully characterized. Additional details, limitations, and caveats are in the paper.
 
 ## Loading checkpoints
 

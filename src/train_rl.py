@@ -1,9 +1,8 @@
 """
 Three-phase PPO training for molecular generation. Phase 1 anchors
-the policy to a BC prior at small sizes; phase 2 ramps the size
-center; phase 3 freezes size and uses a top-N evaluation-reward gate
+the policy to a BC prior at small sizes. Phase 2 ramps the size
+center and phase 3 freezes size and uses a top-N evaluation-reward gate
 for early stopping. BC prior and initial surrogate are disk-cached.
-Evaluation lives in evaluate.py.
 """
 
 import sys
@@ -34,7 +33,8 @@ from config import ProjectConfig, ORGANISM_KEYS, pick_device, release_cache
 from src.gnn import MultiTaskGNN
 from src.feature_engineering import smiles_to_graph
 from src.rewards import (PotencySurrogate, fp_array,
-                         training_reward, evaluation_reward)
+                         training_reward, evaluation_reward,
+                         aggregated_organism, active_smiles)
 from src.rl import (MolPolicy, VecMolEnv, PPOTrainer, ExpertStep,
                     expert_trajectory,
                     node_kind_tensors, node_action_stats)
@@ -43,32 +43,6 @@ cfg = ProjectConfig()
 
 
 # SMILES sources for surrogate training and BC pretraining
-
-def aggregated_organism(stem: str) -> Optional[pd.DataFrame]:
-    """Median-aggregated log_mic per canonical SMILES, or None if missing."""
-    path = cfg.paths.processed / f"{stem}_mic_data.csv"
-    if not path.exists():
-        return None
-    df = pd.read_csv(path).dropna(subset=["canonical_smiles", "mic_value"])
-    df = df[df["mic_value"] > 0].copy()
-    df["log_mic"] = np.log10(df["mic_value"])
-    agg = df.groupby("canonical_smiles")["log_mic"].median().reset_index()
-    return agg
-
-
-def active_smiles() -> List[str]:
-    """Median-aggregated active SMILES across organisms (deduplicated)."""
-    log_thr = float(np.log10(cfg.data.mic_threshold))
-    pieces = []
-    for stem in cfg.data.organisms:
-        agg = aggregated_organism(stem)
-        if agg is None:
-            continue
-        pieces.append(agg.loc[agg["log_mic"] < log_thr, "canonical_smiles"])
-    if not pieces:
-        return []
-    return pd.concat(pieces).drop_duplicates().tolist()
-
 
 def stratified_smiles(n_active: int, n_inactive: int,
                       seed: int) -> List[str]:
@@ -303,7 +277,7 @@ def pretrain_policy(policy, steps, device,
 # Phase 3 top-N gate - early-stop
 
 class TopNGate:
-    """Top-N early-stop gate; each SMILES is scored once and cached by canonical key."""
+    """Top-N early-stop gate. Each SMILES is scored once and cached by canonical key."""
 
     def __init__(self, n: int, patience: int, reward_fn,
                  device=None, prior_state: Optional[dict] = None):
@@ -581,7 +555,7 @@ def phase1_loop(trainer, vec_env, all_generated,
 
 def phase2_loop(trainer, vec_env, reward_fn, all_generated,
                 resume_at: int = 0, log_rows: Optional[list] = None):
-    """Size-center ramp; KL relaxed to phase2."""
+    """Size-center ramp. KL relaxed to phase2."""
     rl = trainer.cfg
     if log_rows is None:
         log_rows = []
@@ -608,7 +582,7 @@ def phase2_loop(trainer, vec_env, reward_fn, all_generated,
 
 
 def phase3_transition(trainer, reward_fn):
-    """Phase 3 settings: freeze size at the phase-2 endpoint, reuse phase-2 KL and entropy."""
+    """Phase 3 settings. Freeze size at the phase-2 endpoint, reuse phase-2 KL and entropy."""
     rl = trainer.cfg
     reward_fn.size_center = rl.size_center_phase2_end
     reward_fn.potency_floor = rl.potency_floor
@@ -659,8 +633,8 @@ def save_outputs(molecules: List[str], log_rows: List[dict]):
 
 
 def final_snapshot(trainer):
-    """Persist the gate-selected best phase-3 weights as policy_final.pt;
-    fall back to the in-memory policy when no phase-3 best exists.
+    """Persist the gate-selected best phase-3 weights as policy_final.pt.
+    A fall back to the in-memory policy when no phase-3 best exists.
     """
     src = cfg.paths.models / "policy_phase3_best.pt"
     dst = cfg.paths.models / "policy_final.pt"
