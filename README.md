@@ -25,15 +25,15 @@ The generative agent employs a PPO policy on a GATv2 graph, trained with autoreg
 behavior of known antibiotics and then is anchored to this prior using KL divergence, facilitating exploration while avoiding nonsensical outputs. The training 
 proceeds through three phases, starting with broad structural exploration, then gradually increasing molecule size from 25 to 30 heavy atoms, and finally expanding 
 the top candidates. An inner-loop surrogate fingerprint network manages reward evaluations, reserving the computationally intensive GNN reward for final scoring. 
-The reward combines predicted potency, drug-likeness, synthetic accessibility, novelty compared to DrugBank, and resistance evasion against CARD. The predicted potency 
-is multiplied by an applicability-domain factor, ensuring the reward emphasizes potency only when molecules are close to the training chemistry, reducing the reward for 
-molecules far from this chemical space.
+The reward combines predicted potency, drug-likeness, synthetic accessibility, novelty compared to DrugBank, and resistance evasion against CARD. The reward function also 
+defines an applicability-domain factor intended to reduce potency credit for molecules far from the training chemistry. Its reference set was empty at run time, so it 
+returned a constant value and had no effect on the reported run, a limitation the paper discusses in full.
 
 The run generated 20,030 unique valid molecules. Under the canonical reward, the agent significantly exceeded the random and 
 hill-climbing baselines, with Bonferroni-corrected $p$ values below $10^{-16}$. This includes both comparisons; Cliff's $\delta$ is 0.98 and 0.83. 
 On the full reward distribution, the genetic algorithm and the character-level SMILES-RNN scored higher than the agent, with Cliff's 
 $\delta$ of $-0.92$ and $-0.98$. However, each reached that score by collapsing onto a very small set of structures. The genetic algorithm 
-converged to a single Bemis-Murcko scaffold across 100 molecules, and the SMILES-RNN covered only four scaffolds across roughly 13,000 
+converged to a single Bemis-Murcko scaffold across 100 molecules, and the SMILES-RNN collapsed onto a single dominant scaffold across roughly 13,000 
 molecules. The Mann-Whitney test favors this concentration, rendering it an inappropriate metric for assessing generator quality in these two pools. 
 The number of distinct scaffolds produced by a method is a design goal-relevant metric. Moreover, the agent produced 13,925 distinct scaffolds, 
 and its 100 highest-scoring molecules span 100 distinct scaffolds, while the same counts for the genetic algorithm and the SMILES-RNN are 
@@ -175,7 +175,3 @@ which is not included in the public repository, so they are provided in their cu
   url          = {https://github.com/jsf3467v/antibiotic-discovery}
 }
 ```
-
-## License
-
-The code is released under the MIT License, and the paper PDF under CC BY 4.0. See `LICENSE` for the code terms.

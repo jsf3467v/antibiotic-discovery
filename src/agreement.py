@@ -1,6 +1,6 @@
 """
-Surrogate-to-GNN agreement on the generated pool, the molecules the surrogate
-actually stands in for during rollouts. This file reports the Pearson correlation and the
+Surrogate-to-GNN agreement on the generated pool, the molecules the
+surrogate actually stands in for during sampling. This file reports the Pearson correlation and the
 binary-call agreement between the two potency signals under the same
 sigmoid-then-mean wrapper the reward uses. Both signals come from the same
 SMILES, so the pool is held out from neither yet biased toward neither.

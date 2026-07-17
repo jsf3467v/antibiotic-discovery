@@ -75,6 +75,10 @@ class Paths:
     def eda_plots(self) -> Path:
         return self.root / "EDA" / "plots"
 
+    @property
+    def plots(self) -> Path:
+        return self.root / "results" / "plots"
+
 
 @dataclass
 class AtomConfig:
@@ -246,5 +250,6 @@ class ProjectConfig:
 
     def ensure_dirs(self) -> None:
         for d in (self.paths.processed, self.paths.models,
-                  self.paths.metrics, self.paths.eda_plots):
+                  self.paths.metrics, self.paths.eda_plots,
+                  self.paths.plots):
             d.mkdir(parents=True, exist_ok=True)

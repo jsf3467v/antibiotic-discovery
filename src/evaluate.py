@@ -146,7 +146,7 @@ def scored_descending(smiles: List[str],
 
 
 def pool_summary(scores: np.ndarray) -> dict:
-    """Table 2 row: count, mean, max, top-N mean, top-100 mean."""
+    """Table 2 row. Count, mean, max, top-N mean, top-100 mean."""
     if scores.size == 0:
         return {"n": 0, "mean": 0.0, "max": 0.0,
                 f"top{TOP_N}": 0.0, "top100": 0.0}
@@ -160,7 +160,7 @@ def pool_summary(scores: np.ndarray) -> dict:
 
 
 def component_breakdown(top_smiles: List[str], reward_fn) -> dict:
-    """Table 3 row: top-K component means via RewardFunction.detailed."""
+    """Table 3 row. Top-K component means via RewardFunction.detailed."""
     if not top_smiles:
         return {k: 0.0 for k in COMPONENT_KEYS}
     rows = [reward_fn.detailed(s) for s in top_smiles]

@@ -1,6 +1,6 @@
 """
 RL for molecular generation. MDP environment, autoregressive GNN
-policy, PPO with batched rollouts, KL-prior anchor, top-k replay,
+policy, PPO with batching, KL-prior anchor, top-k replay,
 and BC expert-trajectory pretraining.
 """
 
@@ -224,7 +224,7 @@ class MolEnv:
 
 
 class VecMolEnv:
-    """N parallel MolEnvs for batched rollouts."""
+    """N parallel MolEnvs for batching."""
 
     def __init__(self, n_envs: int, max_steps: int = 60, max_atoms: int = 60):
         self.envs = [MolEnv(max_steps, max_atoms) for _ in range(n_envs)]
@@ -789,7 +789,7 @@ def node_action_stats(proj, all_node, all_graph, batch_idx,
 # PPO trainer
 
 class PPOTrainer:
-    """PPO with batched rollouts, KL-prior anchor, and top-k replay. NaN losses are skipped."""
+    """PPO with batching, KL-prior anchor, and top-k replay. NaN losses are skipped."""
 
     def __init__(self, policy: MolPolicy, reward_fn: Callable,
                  cfg: RLConfig, device: torch.device,
@@ -881,7 +881,7 @@ class PPOTrainer:
 
     def ppo_minibatches(self, transitions, old_lps_t, adv_t, returns_t,
                         prior_lps_t, metrics: dict) -> int:
-        """All PPO minibatch updates over the rollout. Returns batch count."""
+        """All PPO minibatch updates. Returns batch count."""
         n = 0
         for _ in range(self.cfg.ppo_epochs):
             idx = np.random.permutation(len(transitions))

@@ -21,7 +21,7 @@ HETERO_NUMS = frozenset({7, 8, 9, 15, 16, 17, 35, 53})
 
 # Atom / bond feature vectors
 
-# Atom (12): atomic_num, degree, formal_charge, hybridisation, aromatic,
+# Atom (12): atomic_num, degree, formal_charge, hybridization, aromatic,
 #            num_Hs, in_ring, min_ring_size/8, mass/100, radical_e,
 #            explicit_valence, is_heteroatom
 # Edge  (4): bond_type, conjugated, in_ring, stereo
