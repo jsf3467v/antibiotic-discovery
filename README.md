@@ -10,11 +10,12 @@ This project employs machine learning to discover new antibiotic candidates. It 
 
 ## Summary
 
-The potency model is a three-layer GATv2 network with organism-specific heads, trained on 78,314 compound-organism measurements from ChEMBL under a masked Huber loss. On a held-out scaffold-split test set it reaches an AUROC of 0.84 for *S. aureus* and 0.86 for *E. coli*, with the *E. coli* result close to the noise ceiling estimated from replicate measurements.
+The potency model is a three-layer GATv2 network with organism-specific heads, trained on 78,314 compound-organism measurements from ChEMBL using a masked Huber loss. It achieves an AUROC of 0.84 for *S. aureus* and 0.86 for *E. coli* on a hold-out scaffold-split test set, with the *E. coli* score nearing the estimated noise ceiling from replicate measurements.
 
-The three-phase PPO agent generates close to 20,000 unique valid molecules per seed. Under the canonical reward it decisively exceeds the random and hill-climbing baselines, with Bonferroni-corrected $p$ values below $10^{-16}$. The genetic algorithm and the SMILES-RNN post higher pool-wide reward, but reach it only through low structural diversity, the genetic algorithm collapsing onto a single scaffold and the SMILES-RNN producing small and unstable pools. Judged on the properties that matter for a candidate set, which are structural diversity, drug-likeness, and similarity to known active antibiotics, the agent leads every method. It carries the highest scaffold and internal diversity, complete novelty against the DrugBank antibiotic reference, and the closest distributional match to active antibiotics by Frechet ChemNet Distance.
+The three-phase PPO agent generates nearly 20,000 unique valid molecules per seed. Under the standard reward, it significantly outperforms random and hill-climbing baselines, with Bonferroni-corrected $p$ values below $10^{-16}$. Although the genetic algorithm and the SMILES-RNN produce higher pooled rewards, they do so with low structural diversity— the genetic algorithm collapsing onto a single scaffold and the SMILES-RNN generating small, unstable pools. In terms of key properties like structural diversity, novelty, and similarity to known antibiotics, the agent surpasses all other methods. It exhibits the highest scaffold and internal diversity, is completely novel compared to DrugBank antibiotics, and has the closest distributional match to active antibiotics based on Frechet ChemNet Distance. Drug-likeness results are mixed: while the top candidates score well on QED, the overall Lipinski pass rate is below baseline levels, indicating the need for a drug-likeness filter before selection.
 
-The pool metrics are stable across three random seeds, which is the main evidence that the behavior is not an artifact of a single run. Seed 42 is used as the representative run for the figures, and the paper holds the full per-method tables.
+The pool metrics remain consistent across three random seeds, supporting that these results are not due to a single run. Seed 42 is used as the representative in figures, and the full per-method tables are included in the paper.
+
 
 | Metric | Seed 42 | Seed 43 | Seed 44 |
 | --- | --- | --- | --- |
@@ -30,7 +31,7 @@ The pool metrics are stable across three random seeds, which is the main evidenc
 
 ## Limitations
 
-Several caveats should be considered. Approximately 88 percent of the generated molecules activate at least one Brenk structural alert, and the highest-scoring molecules tend to be large and to contain reactive groups, so a structural-alert and drug-likeness filter is recommended before any molecule is selected for synthesis or docking. Nearly 30 percent of the pool consists of acyclic molecules, a shape that known antibiotics rarely take, which is a further reason to filter before selection. The surrogate model that stands in for the graph network during sampling shows only weak agreement with it on the generated pool, with a Pearson correlation of $r = 0.18$ and 67 percent agreement on binary active-class calls. This indicates that the reward behavior of the agent depends more on the structural reward terms and the behavior-cloned prior than on surrogate-guided potency. The generation results come from three random seeds for the agent and the four baseline generators, so run-to-run variability of the generation is measured, while the graph network is trained once on a single scaffold split, so variability from the model and from the split remains unmeasured. The reward also applies an applicability-domain factor that reduces potency credit for molecules far from the training chemistry. In this run the factor was active, flooring at 0.25 for the most distant molecules and rising to 1.0 for those closest to the training set, so off-distribution potency was gated rather than left unchecked. The high Brenk-alert and acyclic fractions noted above show that structural quality still needs filtering despite this. The Limitations section of the paper discusses these points further.
+Several caveats should be considered. About 88% of the generated molecules activate at least one Brenk structural alert, and the top-scoring molecules tend to be large and contain reactive groups. Therefore, applying a structural-alert and drug-likeness filter is advised before selecting molecules for synthesis or docking. Nearly 30% of the pool are acyclic molecules, a shape rarely seen in known antibiotics, which further underscores the need for filtering before selection. The surrogate model used for sampling shows only weak agreement with the graph network, with a Pearson correlation of $r = 0.18$ and 67% agreement on binary active-class calls. This suggests that the agent's reward behavior relies more on the structural reward terms and behavior-cloned prior than on surrogate-guided potency. Results were based on three random seeds for the agent and four baseline generators, capturing run-to-run variability, while the graph network was trained once on a single scaffold split, leaving variability from the model and split unmeasured. An applicability-domain factor was included in the reward to reduce potency credit for molecules far from training chemistry. In this run, the factor was active, with a floor at 0.25 for the most distant molecules and rising to 1.0 for those closest to the training set, controlling off-distribution potency. The high fractions of Brenk-alerts and acyclic molecules highlight the continued need for filtering despite these measures. The paper's Limitations section discusses these issues further.
 
 ## Paper
 
@@ -74,9 +75,14 @@ python src/evaluate.py
 bash run.sh --fresh                                             # of agent training
                                                                 # per seed, near
                                                                 # 3 hours in total
+
+# 5. Verify reward integrity, reading existing artifacts only    (seconds)
+bash verify.sh
 ```
 
-The `run.sh` script drives the reinforcement learning pipeline across seeds 42, 43, and 44. For each seed it trains the agent, scores the pool under the canonical reward, trains and scores the four baseline generators, runs the statistical comparison, checks surrogate agreement, and summarizes the training dynamics. It runs a reward sanity check before the seeds and a weight-recovery check after each seed, and it writes a cross-seed summary into `results/summary/`. A single seed can be run with `bash run.sh --fresh 42`, and a run that stops partway can be resumed by omitting `--fresh`, since the agent training continues from its last checkpoint.
+The `run.sh` script drives the reinforcement learning pipeline across seeds 42, 43, and 44. For each seed it trains the agent, scores the pool under the canonical reward, trains and scores the four baseline generators, runs the statistical comparison, checks surrogate agreement, and summarizes the training dynamics. It then writes a cross-seed summary into `results/summary/`. A single seed can be run with `bash run.sh --fresh 42`, and a run that stops partway can be resumed by omitting `--fresh`, since the agent training continues from its last checkpoint.
+
+The `verify.sh` script runs the reward-integrity checks after `run.sh` finishes, and it only reads existing artifacts rather than scoring new molecules with the graph network. It runs `diagnose_rewards` once at the start to write the seed-invariant probe files, then runs `gate_check` for each seed against that seed's run directory. A single seed can be checked with `bash verify.sh 42`.
 
 Scores, tables, and metrics are written under `runs/seed{N}/` for each seed and summarized under `results/summary/`, so the reported numbers can be inspected without rerunning the pipeline. The plot folders and the checkpoints in `models/` are created on the first run and are not committed. Download the checkpoints from Hugging Face as described under Setup.
 
@@ -124,7 +130,7 @@ Scores, tables, and metrics are written under `runs/seed{N}/` for each seed and 
     └── summary/               # Cross-seed mean and range for every table
 ```
 
-The reward-diagnostic files `reward_probes.csv`, `reward_landscape.csv`, and `growth_gradient.csv` in `results/metrics/` come from `src/diagnose_rewards.py`, which `run.sh` runs as a pre-flight check, so they are regenerated by the pipeline rather than provided in fixed form.
+The reward-diagnostic files `reward_probes.csv`, `reward_landscape.csv`, and `growth_gradient.csv` in `results/metrics/` come from `src/diagnose_rewards.py`, which `verify.sh` runs before the per-seed checks, so they are regenerated by the pipeline rather than provided in fixed form.
 
 ## Citation
 

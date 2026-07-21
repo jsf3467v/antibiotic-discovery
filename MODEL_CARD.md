@@ -18,7 +18,7 @@ The pipeline has two trained parts. The potency model is a three-layer GATv2 enc
 
 The composite reward combines predicted potency, synthetic accessibility, drug-likeness, novelty against DrugBank, and resistance evasion against CARD, with weights of 0.30, 0.25, 0.20, 0.15, and 0.10 in that order. A two-sided size band centered at 30 heavy atoms keeps molecules in the active size range, a composition penalty discourages heteroatom-rich exploits, and an applicability-domain factor reduces potency credit for molecules far from the training chemistry. In the reported run the applicability-domain factor was active, flooring at 0.25 for the most distant molecules and rising to 1.0 for those closest to the training set.
 
-## Hosted checkpoints
+## Model Checkpoints
 
 The graph network, the surrogate, and the behavior-cloned prior are seed-invariant and are provided as one file each. The final policy is produced once per seed, so three copies are provided, one for each of seeds 42, 43, and 44.
 
@@ -41,7 +41,7 @@ The graph network was trained for 61 epochs under a masked Huber loss with an Ad
 
 ## Evaluation
 
-On a held-out scaffold-split test set the graph network reaches an AUROC of 0.84 for *S. aureus* and 0.86 for *E. coli*, with the *E. coli* result close to the noise ceiling estimated from replicate measurements. The agent generates close to 20,000 unique valid molecules per seed and, under the canonical reward, decisively exceeds the random and hill-climbing baselines with Bonferroni-corrected $p$ values below $10^{-16}$. The genetic algorithm and the SMILES-RNN post higher pool-wide reward but reach it only through low structural diversity, so on structural diversity, drug-likeness, and distributional similarity to known active antibiotics the agent leads every method.
+On a held-out scaffold-split test set the graph network reaches an AUROC of 0.84 for *S. aureus* and 0.86 for *E. coli*, with the *E. coli* result close to the noise ceiling estimated from replicate measurements. The agent generates close to 20,000 unique valid molecules per seed and, under the canonical reward, decisively exceeds the random and hill-climbing baselines with Bonferroni-corrected $p$ values below $10^{-16}$. The genetic algorithm and the SMILES-RNN post higher pool-wide reward but reach it only through low structural diversity, so on structural diversity, novelty, and distributional similarity to known active antibiotics the agent leads every method. Drug-likeness is more mixed. The top candidates score well by QED, but the pool-wide Lipinski pass rate falls below the baselines, so a drug-likeness filter is still needed before selection.
 
 The pool metrics are stable across the three seeds.
 
