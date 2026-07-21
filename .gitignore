@@ -7,8 +7,15 @@ models/
 # Paper PDF and LaTeX source (hosted on Hugging Face)
 Papers/
 
+# Per-seed run archives: keep the small metric CSVs, drop the weights
+# (checkpoints hosted on Hugging Face, same as models/)
+runs/**/*.pt
+
+# Seed stamp written by run_baselines.sh (models/.seed is already covered)
+results/.baseline_seed
+
 # Diagnostic script — excluded from public repo
-src/diagnose_rewards.py
+src/absearch/analysis/diagnose_rewards.py
 
 # Old README kept locally for project archive — not for public repo
 README1.md
@@ -43,3 +50,8 @@ env/
 .DS_Store
 Thumbs.db
 
+
+runs/
+results/plots/
+EDA/plots/
+*.log

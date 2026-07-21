@@ -50,19 +50,19 @@ FCD_DEVICE = "cpu"
 
 
 def scored_csv(name: str) -> Path:
-    return cfg.paths.results / f"baseline_{name}_scored.csv"
+    return cfg.run / f"baseline_{name}_scored.csv"
 
 
 def rl_scored_csv() -> Path:
-    return cfg.paths.results / "rl_pool_scored.csv"
+    return cfg.run / "rl_pool_scored.csv"
 
 
 def episode_log_path() -> Path:
-    return cfg.paths.results / "rl_episode_log.csv"
+    return cfg.run / "rl_episode_log.csv"
 
 
 def props_cache_path() -> Path:
-    return cfg.paths.results / "rl_episode_props.csv"
+    return cfg.run / "rl_episode_props.csv"
 
 
 def cached_pool(scored_path: Path
@@ -356,14 +356,19 @@ def print_quintile_table(df: pd.DataFrame):
 
 
 def write_csvs(sig_rows, dist_rows, phase_df, quintile_df):
-    out = cfg.paths.metrics
-    pd.DataFrame(sig_rows).to_csv(
-        out / "stat_tests_significance.csv", index=False)
-    pd.DataFrame(dist_rows).to_csv(
-        out / "stat_tests_distribution.csv", index=False)
+    out = cfg.run_metrics
+    seed = cfg.rl.seed
+    sig = pd.DataFrame(sig_rows)
+    sig.insert(0, "seed", seed)
+    sig.to_csv(out / "stat_tests_significance.csv", index=False)
+    dist = pd.DataFrame(dist_rows)
+    dist.insert(0, "seed", seed)
+    dist.to_csv(out / "stat_tests_distribution.csv", index=False)
     if phase_df is not None:
+        phase_df.insert(0, "seed", seed)
         phase_df.to_csv(out / "stat_tests_phase.csv", index=False)
     if quintile_df is not None:
+        quintile_df.insert(0, "seed", seed)
         quintile_df.to_csv(out / "stat_tests_quintile.csv", index=False)
 
 
@@ -385,6 +390,8 @@ def cached_pools() -> Optional[Tuple[List[str], np.ndarray, dict]]:
 
 def main():
     cfg.ensure_dirs()
+    cfg.ensure_seed_dirs(cfg.rl.seed)
+    print(f"seed: {cfg.rl.seed}")
     np.random.seed(cfg.train.seed)
     loaded = cached_pools()
     if loaded is None:
@@ -411,7 +418,7 @@ def main():
         print_phase_table(phase_df)
         print_quintile_table(quintile_df)
     write_csvs(sig_rows, dist_rows, phase_df, quintile_df)
-    print(f"\nSaved to {cfg.paths.metrics}")
+    print(f"\nSaved to {cfg.run_metrics}")
 
 
 if __name__ == "__main__":

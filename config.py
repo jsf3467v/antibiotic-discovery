@@ -79,6 +79,14 @@ class Paths:
     def plots(self) -> Path:
         return self.root / "results" / "plots"
 
+    def seed_dir(self, seed: int) -> Path:
+        """Per-seed run root. Seed-dependent artifacts live here; the seed-
+        invariant reward and GNN diagnostics stay under `metrics`."""
+        return self.root / "runs" / f"seed{seed}"
+
+    def seed_metrics(self, seed: int) -> Path:
+        return self.seed_dir(seed) / "metrics"
+
 
 @dataclass
 class AtomConfig:
@@ -126,13 +134,14 @@ class DataConfig:
 
 @dataclass
 class CompositionConfig:
-    """Reference atom-fraction distribution from active-subset.
-    """
+    """Reference atom-fraction distribution from active-subset. `scale` sets
+    penalty strength, decoupled from the size gate."""
     reference: Dict[str, float] = field(default_factory=lambda: {
         "C": 0.70, "N": 0.12, "O": 0.14,
         "F": 0.017, "S": 0.013, "Cl": 0.008,
     })
     tau: float = 0.20
+    scale: float = 0.5
 
 
 @dataclass
@@ -172,6 +181,7 @@ class RLConfig:
     clip_eps: float = 0.2
     max_steps: int = 60
     n_envs: int = 32
+    seed: int = int(os.environ.get("RL_SEED", 42))
 
     # Three-phase episode budget.
     phase1_episodes: int = 6_000
@@ -181,9 +191,11 @@ class RLConfig:
     entropy_phase1: float = 0.10
     entropy_phase2: float = 0.10
 
-    # Size gate: small ramp inside the active size distribution
+    # Size gate: band-pass over the active size distribution. The band is
+    # size_center plus or minus half of size_window.
     size_center_phase1: float = 25.0
     size_center_phase2_end: float = 30.0
+    size_window: float = 12.0
     size_steepness: float = 0.20
     gate_floor: float = 0.0
     potency_floor: float = 0.0
@@ -227,8 +239,8 @@ class RLConfig:
 
 @dataclass
 class RewardWeights:
-    potency: float = 0.35
-    novelty: float = 0.10
+    potency: float = 0.30
+    novelty: float = 0.15
     resistance: float = 0.10
     qed: float = 0.20
     sa_score: float = 0.25
@@ -253,3 +265,15 @@ class ProjectConfig:
                   self.paths.metrics, self.paths.eda_plots,
                   self.paths.plots):
             d.mkdir(parents=True, exist_ok=True)
+
+    @property
+    def run(self) -> Path:
+        """Per-seed run"""
+        return self.paths.seed_dir(self.rl.seed)
+
+    @property
+    def run_metrics(self) -> Path:
+        return self.paths.seed_metrics(self.rl.seed)
+
+    def ensure_seed_dirs(self, seed: int) -> None:
+        self.paths.seed_metrics(seed).mkdir(parents=True, exist_ok=True)

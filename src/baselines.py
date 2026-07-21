@@ -1,7 +1,5 @@
-"""
-Train the four generation baselines. Random construction, genetic
-algorithm, hill climbing, SMILES.
-"""
+"""Train the four generation baselines, random construction, genetic
+algorithm, hill climbing, and a SMILES-RNN."""
 
 import sys
 sys.path.insert(0, str(__import__('pathlib').Path(__file__).resolve().parent.parent))
@@ -12,6 +10,7 @@ warnings.filterwarnings("ignore", message=".*MorganGenerator.*")
 from rdkit import RDLogger
 RDLogger.DisableLog('rdApp.*')
 
+import argparse
 import signal
 
 from pathlib import Path
@@ -100,8 +99,8 @@ def random_smiles(max_atoms: int = 30) -> Optional[str]:
 
 
 def mutate(smiles: str) -> Optional[str]:
-    """Single-point mutation. Atom-swap or atom-add. None on failure.
-    Atom-swap requires n>1 so the seed atom can't be silently dropped."""
+    """Single-point mutation, atom-swap or atom-add. None on failure.
+    Swap requires n>1 so the seed atom is not silently dropped."""
     mol = Chem.MolFromSmiles(smiles)
     if mol is None or mol.GetNumAtoms() == 0:
         return None
@@ -143,9 +142,8 @@ def crossover(s1: str, s2: str) -> Optional[str]:
 
 
 def valid_smiles(pool: List[Optional[str]]) -> List[str]:
-    """Canonicalize, drop None and parse failures. Duplicates kept so
-    convergence behavior (e.g. GA collapsing onto one structure) stays
-    visible to downstream evaluation."""
+    """Canonicalize and drop None and parse failures. Duplicates are kept,
+    so a collapsed pool stays visible to downstream evaluation."""
     out = []
     for s in pool:
         if s is None:
@@ -199,9 +197,8 @@ def batch_score(smiles_list: List[str], reward_fn,
 def ga_step(pop: List[str], reward_fn, gnn, device,
             pop_size: int, elite_frac: float,
             mutate_rate: float) -> List[str]:
-    """One GA generation. Batched scoring, take elites, breed children.
-    Capped at 4*pop_size breeding attempts so a stalled crossover/mutate
-    cannot spin forever on pathological populations."""
+    """One GA generation, scoring then elite selection then breeding.
+    Breeding is capped at four times pop_size attempts so it cannot stall."""
     scores = batch_score(pop, reward_fn, gnn, device)
     order = np.argsort(-scores)
     n_elite = max(int(len(pop) * elite_frac), 2)
@@ -274,8 +271,7 @@ class CharRNN(nn.Module):
 
 
 class SmilesRNN:
-    """Character-level SMILES generator. Sampling is fully batched on
-    device. Decoding to Python strings happens once on CPU at the end."""
+    """Character-level SMILES generator with batched on-device sampling."""
 
     PAD = " "     # doubles as end-of-sequence
     BOS = "\n"    # start marker; never occurs inside a SMILES string
@@ -376,8 +372,7 @@ class SmilesRNN:
                 opt.step()
 
     def sample(self, n: int, temperature: float = 0.8) -> List[str]:
-        """Batched autoregressive sampling. Decoding stops at the first PAD and recovers the right
-        string regardless."""
+        """Batched autoregressive sampling, stopping at the first PAD."""
         self.model.eval()
         active = torch.full((n, 1), self.bos_idx,
                             dtype=torch.long, device=self.device)
@@ -419,8 +414,7 @@ def rnn_pool(reward_fn, gnn, device: torch.device,
              rounds: int = RNN_FINETUNE_ROUNDS,
              finetune_n: int = RNN_FINETUNE_BATCH) -> List[str]:
     """Pretrain on actives, REINFORCE fine-tune against batched reward,
-    sample n. The fine-tune scorer batches the GNN forward across the
-    per-round draw."""
+    then sample n."""
     rnn = SmilesRNN(device, pretrain_smiles)
     rnn.pretrain(pretrain_smiles)
     scorer = lambda smis: batch_score(smis, reward_fn, gnn, device)
@@ -443,44 +437,69 @@ def trained_gnn(device: torch.device) -> MultiTaskGNN:
     return model
 
 
-def pool_path(name: str) -> Path:
-    return cfg.paths.results / f"baseline_{name}.csv"
+def pool_path(name: str, seed: int) -> Path:
+    return cfg.paths.seed_dir(seed) / f"baseline_{name}.csv"
+
+
+def pool_seed(path: Path) -> Optional[int]:
+    """Seed stamped into an existing pool, or None for an unstamped v1 file."""
+    head = pd.read_csv(path, nrows=1)
+    if "seed" not in head.columns or head.empty:
+        return None
+    return int(head["seed"].iloc[0])
 
 
 def run_pool(name: str, generator: Callable[[], List[str]],
-             device: torch.device):
-    """Per-baseline resume via existence check. Release device cache after every run because the
-    RNN baseline allocates a model on device and MPS does not shrink
-    its allocator pool proactively."""
-    path = pool_path(name)
+             device: torch.device, seed: int):
+    """Per-baseline resume via existence check, guarded by the stamped seed so
+    another run's pool is not relabeled as this seed. Releases device cache
+    afterward."""
+    path = pool_path(name, seed)
     if path.exists():
-        print(f"  {name}: skipping (already at {path.name})")
-        return
+        found = pool_seed(path)
+        if found == seed:
+            print(f"  {name}: skipping (already at {path.name}, seed {seed})")
+            return
+        raise SystemExit(
+            f"{path.name} was generated under seed {found}, not {seed}. "
+            "Archive or delete it, or pass --fresh; reusing it would label "
+            "another run's pool as this seed.")
     print(f"  {name}: running...")
     pool = generator()
-    pd.DataFrame({"smiles": pool}).to_csv(path, index=False)
+    pd.DataFrame({"smiles": pool, "seed": seed}).to_csv(path, index=False)
     print(f"  {name}: saved {len(pool):,} molecules to {path.name}")
     release_cache(device)
 
 
 def main():
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--fresh", action="store_true",
+                    help="delete existing pools before running")
+    args = ap.parse_args()
+
+    seed = cfg.rl.seed
     cfg.ensure_dirs()
+    cfg.ensure_seed_dirs(seed)
     device = pick_device()
-    print(f"Device: {device}")
-    torch.manual_seed(cfg.train.seed)
-    np.random.seed(cfg.train.seed)
+    print(f"Device: {device}  seed: {seed}")
+    names = ["random", "genetic_algorithm", "hill_climbing", "smiles_rnn"]
+    if args.fresh:
+        for n in names:
+            pool_path(n, seed).unlink(missing_ok=True)
+    torch.manual_seed(seed)
+    np.random.seed(seed)
     gnn = trained_gnn(device)
     reward_fn = evaluation_reward(gnn, device)
     corpus = active_smiles()
     print(f"RNN pretrain corpus: {len(corpus):,} active SMILES")
-    run_pool("random", random_pool, device)
+    run_pool("random", random_pool, device, seed)
     run_pool("genetic_algorithm",
-             lambda: genetic_pool(reward_fn, gnn, device), device)
+             lambda: genetic_pool(reward_fn, gnn, device), device, seed)
     run_pool("hill_climbing",
-             lambda: hill_pool(reward_fn, gnn, device), device)
+             lambda: hill_pool(reward_fn, gnn, device), device, seed)
     run_pool("smiles_rnn",
-             lambda: rnn_pool(reward_fn, gnn, device, corpus), device)
-    print(f"\nBaseline pools in {cfg.paths.results}")
+             lambda: rnn_pool(reward_fn, gnn, device, corpus), device, seed)
+    print(f"\nBaseline pools in {cfg.paths.seed_dir(seed)}")
 
 
 if __name__ == "__main__":

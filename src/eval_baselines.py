@@ -35,11 +35,11 @@ BASELINES = ("random", "genetic_algorithm", "hill_climbing", "smiles_rnn")
 
 
 def pool_csv(name: str) -> Path:
-    return cfg.paths.results / f"baseline_{name}.csv"
+    return cfg.run / f"baseline_{name}.csv"
 
 
 def scored_csv(name: str) -> Path:
-    return cfg.paths.results / f"baseline_{name}_scored.csv"
+    return cfg.run / f"baseline_{name}_scored.csv"
 
 
 def csv_pool(name: str) -> List[str]:
@@ -130,17 +130,22 @@ def print_quality(rows: List[dict]):
 
 
 def write_csvs(t2_rows, t3_rows, qm_rows):
-    """Three per-table CSVs into paths.metrics."""
-    out = cfg.paths.metrics
-    pd.DataFrame(t2_rows).to_csv(out / "baselines_table2.csv", index=False)
-    pd.DataFrame(t3_rows).to_csv(out / "baselines_table3.csv", index=False)
-    pd.DataFrame(qm_rows).to_csv(out / "baselines_quality.csv", index=False)
+    """Three per-table CSVs into the per-seed metrics dir, seed-labeled."""
+    out = cfg.run_metrics
+    seed = cfg.rl.seed
+    for rows, name in ((t2_rows, "baselines_table2.csv"),
+                       (t3_rows, "baselines_table3.csv"),
+                       (qm_rows, "baselines_quality.csv")):
+        frame = pd.DataFrame(rows)
+        frame.insert(0, "seed", seed)
+        frame.to_csv(out / name, index=False)
 
 
 def main():
     cfg.ensure_dirs()
+    cfg.ensure_seed_dirs(cfg.rl.seed)
     device = pick_device()
-    print(f"Device: {device}")
+    print(f"Device: {device}  seed: {cfg.rl.seed}")
     torch.manual_seed(cfg.train.seed)
     np.random.seed(cfg.train.seed)
     gnn = trained_gnn(device)
@@ -164,7 +169,7 @@ def main():
     print_table_3(t3_rows)
     print_quality(qm_rows)
     write_csvs(t2_rows, t3_rows, qm_rows)
-    print(f"\nSaved to {cfg.paths.metrics}")
+    print(f"\nSaved to {cfg.run_metrics}")
 
 
 if __name__ == "__main__":

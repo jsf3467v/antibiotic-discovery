@@ -1,10 +1,7 @@
-"""
-Surrogate-to-GNN agreement on the generated pool, the molecules the
-surrogate actually stands in for during sampling. This file reports the Pearson correlation and the
+"""Surrogate-to-GNN agreement on the generated pool, the molecules the
+surrogate stands in for during sampling. Reports Pearson correlation and
 binary-call agreement between the two potency signals under the same
-sigmoid-then-mean wrapper the reward uses. Both signals come from the same
-SMILES, so the pool is held out from neither yet biased toward neither.
-"""
+sigmoid-then-mean wrapper the reward uses."""
 
 import sys
 import logging
@@ -27,7 +24,7 @@ logger = logging.getLogger(__name__)
 
 def pool_smiles():
     """Unique canonical SMILES from the generated RL pool."""
-    path = cfg.paths.results / "generated_molecules.csv"
+    path = cfg.run / "generated_molecules.csv"
     if not path.exists():
         return []
     df = pd.read_csv(path)
@@ -113,9 +110,10 @@ def potencies(smiles, device):
 def main():
     device = pick_device()
     cfg.ensure_dirs()
+    cfg.ensure_seed_dirs(cfg.rl.seed)
     torch.manual_seed(cfg.train.seed)
     np.random.seed(cfg.train.seed)
-    logger.info(f"Device: {device}")
+    logger.info(f"Device: {device}  seed: {cfg.rl.seed}")
 
     smiles = pool_smiles()
     if not smiles:
@@ -130,8 +128,10 @@ def main():
     result = summary(surr_prob, gnn_prob)
     logger.info(f"Scored: {result['n']:,}   Pearson r: {result['pearson_r']:.4f}   "
                 f"Binary agreement: {result['binary_agreement']:.4f}")
-    out = cfg.paths.metrics / "surrogate_agreement.csv"
-    pd.DataFrame([result]).to_csv(out, index=False)
+    out = cfg.run_metrics / "surrogate_agreement.csv"
+    frame = pd.DataFrame([result])
+    frame.insert(0, "seed", cfg.rl.seed)
+    frame.to_csv(out, index=False)
     logger.info(f"Saved {out.name}")
 
 

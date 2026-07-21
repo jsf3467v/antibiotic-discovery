@@ -159,11 +159,16 @@ def gnn_batch_log_mic(smiles_list, gnn_model, device,
 
 # Component scores
 
-def size_gate(mol, center: float = 8.0, steepness: float = 0.5,
-              floor: float = 0.0) -> float:
+def size_gate(mol, center: float = 30.0, window: float = 12.0,
+              steepness: float = 0.20, floor: float = 0.0) -> float:
+    """Band-pass on heavy-atom count. Peaks at center, falls off on both
+    sides, so growth past the active size range stops paying."""
     n = mol.GetNumHeavyAtoms()
-    raw = 1.0 / (1.0 + np.exp(-steepness * (n - center)))
-    return floor + (1.0 - floor) * raw
+    half = 0.5 * max(window, 1e-6)
+    peak = 1.0 / (1.0 + np.exp(-steepness * half)) ** 2
+    lo = 1.0 / (1.0 + np.exp(-steepness * (n - center + half)))
+    hi = 1.0 / (1.0 + np.exp(-steepness * (center + half - n)))
+    return floor + (1.0 - floor) * lo * hi / peak
 
 
 def applicability_gate(query_fp, training_index, lo: float = 0.2,
@@ -232,12 +237,12 @@ def composition_penalty(mol, ref_fractions: np.ndarray,
 
 
 def composition_arrays(cfg: Optional[CompositionConfig]):
-    """Unpack a CompositionConfig to - symbols, ref_fractions, tau."""
+    """Unpack a CompositionConfig to symbols, ref_fractions, tau, scale."""
     if cfg is None:
-        return [], np.zeros(0, dtype=np.float32), 0.0
+        return [], np.zeros(0, dtype=np.float32), 0.0, 0.0
     symbols = list(cfg.reference.keys())
     ref = np.array([cfg.reference[s] for s in symbols], dtype=np.float32)
-    return symbols, ref, cfg.tau
+    return symbols, ref, cfg.tau, cfg.scale
 
 
 # Composite reward
@@ -250,8 +255,9 @@ class RewardFunction:
                  card_index: FingerprintIndex,
                  training_index: Optional[FingerprintIndex] = None,
                  weights: Optional[RewardWeights] = None,
-                 size_center: float = 8.0,
-                 size_steepness: float = 0.5,
+                 size_center: float = 30.0,
+                 size_window: float = 12.0,
+                 size_steepness: float = 0.20,
                  gate_floor: float = 0.0,
                  potency_floor: float = 0.0,
                  surrogate: Optional[PotencySurrogate] = None,
@@ -266,6 +272,7 @@ class RewardFunction:
         self.training = training_index
         self.w = weights if weights is not None else RewardWeights()
         self.size_center = size_center
+        self.size_window = size_window
         self.size_steepness = size_steepness
         self.gate_floor = gate_floor
         self.potency_floor = potency_floor
@@ -274,8 +281,10 @@ class RewardFunction:
         self.ad_lo = ad_lo
         self.ad_hi = ad_hi
         self.ad_floor = ad_floor
-        self.atom_symbols, self.atom_ref, self.atom_tau = (
+        self.atom_symbols, self.atom_ref, self.atom_tau, self.comp_scale = (
             composition_arrays(composition))
+        if size_window <= 0 or size_steepness <= 0:
+            raise ValueError("size gate needs a positive window and steepness")
 
     def potency(self, smiles: str, fp) -> float:
         if self.surrogate is not None:
@@ -307,8 +316,10 @@ class RewardFunction:
             "resistance": resistance(fp, self.card),
             "qed": qed_score(mol),
             "sa": sa_score(mol),
-            "size_gate": size_gate(mol, self.size_center,
-                                   self.size_steepness, self.gate_floor),
+            "size_gate": size_gate(mol, center=self.size_center,
+                                    window=self.size_window,
+                                    steepness=self.size_steepness,
+                                    floor=self.gate_floor),
             "ad_gate": applicability_gate(fp, self.training,
                                           self.ad_lo, self.ad_hi,
                                           self.ad_floor),
@@ -319,7 +330,7 @@ class RewardFunction:
     def weighted_total(self, c: dict) -> float:
         if self.potency_floor > 0 and c["potency"] < self.potency_floor:
             return 0.0
-        eff_comp = 1.0 - c["size_gate"] * (1.0 - c["composition"])
+        eff_comp = 1.0 - self.comp_scale * (1.0 - c["composition"])
         raw = (self.w.potency * c["potency"] * c["ad_gate"]
                + self.w.novelty * c["novelty"]
                + self.w.resistance * c["resistance"]
@@ -407,16 +418,25 @@ def card_index() -> "FingerprintIndex":
     return FingerprintIndex(df["smiles"].dropna().tolist())
 
 
+def checked_index(index: "FingerprintIndex", label: str) -> "FingerprintIndex":
+    """Empty index silently disables its component. Fail loudly instead."""
+    if len(index) == 0:
+        raise ValueError(f"{label} index is empty; its reward term would be inert")
+    return index
+
+
 def training_reward(gnn, device,
                     surrogate: "PotencySurrogate") -> "RewardFunction":
     """RL training reward. Surrogate potency, applicability-gated, size center set by the phase loop."""
     return RewardFunction(
         gnn_model=gnn, device=device,
-        drugbank_index=drugbank_index(),
-        card_index=card_index(),
-        training_index=applicability_index(cfg.applicability.n_ref),
+        drugbank_index=checked_index(drugbank_index(), "drugbank"),
+        card_index=checked_index(card_index(), "card"),
+        training_index=checked_index(
+            applicability_index(cfg.applicability.n_ref), "applicability"),
         weights=cfg.rewards,
         size_center=cfg.rl.size_center_phase1,
+        size_window=cfg.rl.size_window,
         size_steepness=cfg.rl.size_steepness,
         gate_floor=cfg.rl.gate_floor,
         potency_floor=0.0,
@@ -432,11 +452,13 @@ def evaluation_reward(gnn, device) -> "RewardFunction":
     """Canonical reward for RL/baseline comparison. GNN-direct potency, applicability-gated, fixed size center."""
     return RewardFunction(
         gnn_model=gnn, device=device,
-        drugbank_index=drugbank_index(),
-        card_index=card_index(),
-        training_index=applicability_index(cfg.applicability.n_ref),
+        drugbank_index=checked_index(drugbank_index(), "drugbank"),
+        card_index=checked_index(card_index(), "card"),
+        training_index=checked_index(
+            applicability_index(cfg.applicability.n_ref), "applicability"),
         weights=cfg.rewards,
         size_center=cfg.rl.size_center_phase2_end,
+        size_window=cfg.rl.size_window,
         size_steepness=cfg.rl.size_steepness,
         gate_floor=cfg.rl.gate_floor,
         potency_floor=0.0,

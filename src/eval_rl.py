@@ -35,11 +35,11 @@ TOP_CANDIDATES = 20
 
 
 def pool_csv() -> Path:
-    return cfg.paths.results / "generated_molecules.csv"
+    return cfg.run / "generated_molecules.csv"
 
 
 def scored_csv() -> Path:
-    return cfg.paths.results / "rl_pool_scored.csv"
+    return cfg.run / "rl_pool_scored.csv"
 
 
 def rl_pool_smiles() -> List[str]:
@@ -115,17 +115,20 @@ def print_report(summary: dict, components: dict, quality: dict):
 
 
 def write_artifacts(summary, components, quality, candidates):
-    """Persist metrics and top-candidates for the report."""
-    out = cfg.paths.metrics
-    metrics_csv({"summary": summary, "components": components,
+    """Persist metrics and top-candidates for the report, seed-labeled."""
+    out = cfg.run_metrics
+    seed = cfg.rl.seed
+    metrics_csv({"seed": seed, "summary": summary, "components": components,
                  "quality": quality}, out / "rl_pool_metrics.csv")
+    candidates.insert(0, "seed", seed)
     candidates.to_csv(out / "rl_top_candidates.csv", index=False)
 
 
 def main():
     cfg.ensure_dirs()
+    cfg.ensure_seed_dirs(cfg.rl.seed)
     device = pick_device()
-    print(f"Device: {device}")
+    print(f"Device: {device}  seed: {cfg.rl.seed}")
     torch.manual_seed(cfg.train.seed)
     np.random.seed(cfg.train.seed)
     smiles = unique_canonical(rl_pool_smiles())
@@ -147,7 +150,7 @@ def main():
     candidates = top_candidates(sorted_smi, sorted_scores, reward_fn)
     print_report(summary, components, quality)
     write_artifacts(summary, components, quality, candidates)
-    print(f"\nSaved to {cfg.paths.metrics}")
+    print(f"\nSaved to {cfg.run_metrics}")
 
 
 if __name__ == "__main__":

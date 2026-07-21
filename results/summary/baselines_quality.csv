@@ -1,0 +1,13 @@
+method,metric,mean,std,min,max,range,n_seeds
+genetic_algorithm,scaffold_diversity,0.010896,0.002322,0.008264,0.012658,0.004394,3
+genetic_algorithm,internal_diversity,0.600223,0.127988,0.452684,0.681404,0.22872,3
+genetic_algorithm,lipinski_pass,0.903581,0.167002,0.710744,1.0,0.289256,3
+hill_climbing,scaffold_diversity,0.001006,2e-06,0.001003,0.001007,4e-06,3
+hill_climbing,internal_diversity,0.853761,0.001686,0.851991,0.85535,0.003358,3
+hill_climbing,lipinski_pass,0.906455,0.013,0.892246,0.917753,0.025508,3
+random,scaffold_diversity,6.1e-05,0.0,6.1e-05,6.1e-05,1e-06,3
+random,internal_diversity,0.869765,0.007121,0.861638,0.874912,0.013274,3
+random,lipinski_pass,0.990469,0.001195,0.989097,0.991285,0.002188,3
+smiles_rnn,scaffold_diversity,0.163447,0.151837,0.052223,0.336431,0.284208,3
+smiles_rnn,internal_diversity,0.538504,0.073649,0.486807,0.62283,0.136023,3
+smiles_rnn,lipinski_pass,0.852287,0.122685,0.726935,0.972119,0.245184,3

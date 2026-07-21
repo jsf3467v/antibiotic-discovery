@@ -410,7 +410,7 @@ def policy_checkpoint(path: Path, policy, optimizer, episode: int,
 def latest_checkpoint() -> Optional[Tuple[int, Path]]:
     """Return (phase, path) of the most advanced checkpoint, or None."""
     for phase in (3, 2, 1):
-        path = cfg.paths.models / f"policy_phase{phase}.pt"
+        path = cfg.run / f"policy_phase{phase}.pt"
         if path.exists():
             return phase, path
     return None
@@ -426,7 +426,7 @@ def resume_state(policy, optimizer, device):
     ckpt = torch.load(path, map_location=device, weights_only=False)
     policy.load_state_dict(ckpt["policy"])
     optimizer.load_state_dict(ckpt["optimizer"])
-    log_path = cfg.paths.results / "rl_episode_log.csv"
+    log_path = cfg.run / "rl_episode_log.csv"
     if log_path.exists():
         log_df = pd.read_csv(log_path)
         log_rows = log_df.to_dict("records")
@@ -537,7 +537,7 @@ def phase1_loop(trainer, vec_env, all_generated,
     vec_env.set_max_steps(rl.max_steps)
     trainer.entropy_coeff = rl.entropy_phase1
     trainer.kl_coef = rl.kl_phase1
-    ckpt_path = cfg.paths.models / "policy_phase1.pt"
+    ckpt_path = cfg.run / "policy_phase1.pt"
     size_c = rl.size_center_phase1
     for ep in range(resume_at, rl.phase1_episodes, rl.n_envs):
         log_rows.extend(rollout_batch(
@@ -564,7 +564,7 @@ def phase2_loop(trainer, vec_env, reward_fn, all_generated,
     print("\nPhase 2: size ramp - KL relaxed")
     trainer.entropy_coeff = rl.entropy_phase2
     trainer.kl_coef = rl.kl_phase2
-    ckpt_path = cfg.paths.models / "policy_phase2.pt"
+    ckpt_path = cfg.run / "policy_phase2.pt"
     for ep in range(resume_at, rl.phase2_episodes, rl.n_envs):
         size_c = size_center_phase2(ep, rl)
         reward_fn.size_center = size_c
@@ -603,8 +603,8 @@ def phase3_loop(trainer, vec_env, reward_fn, all_generated,
     print("\nPhase 3: top-N gated extension")
     phase3_transition(trainer, reward_fn)
     gate = phase3_gate_setup(trainer, reward_fn, gate_state)
-    ckpt_path = cfg.paths.models / "policy_phase3.pt"
-    ckpt_best = cfg.paths.models / "policy_phase3_best.pt"
+    ckpt_path = cfg.run / "policy_phase3.pt"
+    ckpt_best = cfg.run / "policy_phase3_best.pt"
     size_c = rl.size_center_phase2_end
     for ep in range(resume_at, rl.phase3_episodes, rl.n_envs):
         log_rows.extend(rollout_batch(trainer, vec_env, all_generated,
@@ -626,18 +626,19 @@ def phase3_loop(trainer, vec_env, reward_fn, all_generated,
 def save_outputs(molecules: List[str], log_rows: List[dict]):
     """Write deduplicated valid molecules and the per-episode log."""
     cfg.ensure_dirs()
+    cfg.ensure_seed_dirs(cfg.rl.seed)
     pd.DataFrame({"smiles": molecules}).to_csv(
-        cfg.paths.results / "generated_molecules.csv", index=False)
+        cfg.run / "generated_molecules.csv", index=False)
     pd.DataFrame(log_rows).to_csv(
-        cfg.paths.results / "rl_episode_log.csv", index=False)
+        cfg.run / "rl_episode_log.csv", index=False)
 
 
 def final_snapshot(trainer):
     """Persist the gate-selected best phase-3 weights as policy_final.pt.
     A fall back to the in-memory policy when no phase-3 best exists.
     """
-    src = cfg.paths.models / "policy_phase3_best.pt"
-    dst = cfg.paths.models / "policy_final.pt"
+    src = cfg.run / "policy_phase3_best.pt"
+    dst = cfg.run / "policy_final.pt"
     if src.exists():
         weights = torch.load(src, map_location="cpu", weights_only=True)
         atomic_save(weights, dst)
@@ -720,8 +721,6 @@ def prepared_pipeline(device):
     return trainer, vec_env, reward_fn
 
 
-# Main
-
 
 def initial_state(resumed):
     """Unpack resumed tuple, or return fresh state when None."""
@@ -761,10 +760,11 @@ def run_phases(trainer, vec_env, reward_fn, resumed
 
 def run():
     cfg.ensure_dirs()
+    cfg.ensure_seed_dirs(cfg.rl.seed)
     device = pick_device()
-    print(f"Device: {device}")
-    torch.manual_seed(cfg.train.seed)
-    np.random.seed(cfg.train.seed)
+    print(f"Device: {device}  seed: {cfg.rl.seed}")
+    torch.manual_seed(cfg.rl.seed)
+    np.random.seed(cfg.rl.seed)
     trainer, vec_env, reward_fn = prepared_pipeline(device)
     resumed = resume_state(trainer.policy, trainer.optimizer, device)
     all_generated, log_rows = run_phases(
@@ -774,7 +774,7 @@ def run():
     save_outputs(molecules, log_rows)
     final_snapshot(trainer)
     release_cache(device)
-    print(f"Saved to {cfg.paths.results}")
+    print(f"Saved to {cfg.run}")
 
 
 if __name__ == "__main__":
