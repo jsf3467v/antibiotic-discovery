@@ -31,16 +31,21 @@ def _fp(smiles):
         Chem.MolFromSmiles(smiles), 2, nBits=2048)
 
 
-def test_size_gate_midpoint_is_half():
-    """At heavy-atom count == center, the sigmoid sits at 0.5."""
+def test_size_gate_peaks_at_center():
+    """The band gate peaks at 1.0 when heavy-atom count equals the center."""
     mol = Chem.MolFromSmiles(OCTANE)            # 8 heavy atoms
-    assert size_gate(mol, center=8.0) == pytest.approx(0.5, abs=1e-6)
+    assert size_gate(mol, center=8.0) == pytest.approx(1.0, abs=1e-6)
 
 
-def test_size_gate_monotonic_in_size():
-    small = Chem.MolFromSmiles("CC")            # 2 heavy atoms
-    large = Chem.MolFromSmiles("CCCCCCCCCCCC")  # 12 heavy atoms
-    assert size_gate(small, center=8.0) < size_gate(large, center=8.0)
+def test_size_gate_falls_off_both_sides():
+    """Two-sided band, the gate is highest at the center and lower for
+    molecules both smaller and larger than it."""
+    center = 8.0
+    at_center = size_gate(Chem.MolFromSmiles(OCTANE), center=center)        # 8
+    below = size_gate(Chem.MolFromSmiles("CCCC"), center=center)            # 4
+    above = size_gate(Chem.MolFromSmiles("CCCCCCCCCCCC"), center=center)    # 12
+    assert below < at_center
+    assert above < at_center
 
 
 def test_size_gate_respects_floor():
@@ -84,8 +89,8 @@ def test_atom_fractions_all_carbon():
 
 
 def test_composition_penalty_self_is_one():
-    """Observed == reference -> exp(0) == 1.0."""
-    symbols, ref, tau = composition_arrays(CompositionConfig())
+    """Observed == reference gives exp(0) == 1.0."""
+    symbols, ref, tau, scale = composition_arrays(CompositionConfig())
     # Build a molecule and score it against its OWN fractions.
     mol = Chem.MolFromSmiles(BENZENE)
     own = atom_fractions(mol, symbols)
@@ -94,5 +99,5 @@ def test_composition_penalty_self_is_one():
 
 def test_composition_penalty_disabled_for_nonpositive_tau():
     mol = Chem.MolFromSmiles(BENZENE)
-    symbols, ref, _ = composition_arrays(CompositionConfig())
+    symbols, ref, _, _ = composition_arrays(CompositionConfig())
     assert composition_penalty(mol, ref, symbols, tau=0.0) == 1.0
