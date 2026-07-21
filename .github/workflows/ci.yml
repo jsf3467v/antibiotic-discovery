@@ -84,4 +84,4 @@ jobs:
           pip install torch-geometric rdkit pandas numpy pytest
 
       - name: Run tests
-        run: pytest -q
+        run: python -m pytest -q
