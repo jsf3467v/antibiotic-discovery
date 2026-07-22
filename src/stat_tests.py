@@ -164,6 +164,21 @@ def largest_scaffold_fraction(smiles_list: List[str]) -> float:
     return float(counts.iloc[0]) / len(scafs)
 
 
+def topk_scaffold_count(smiles_list: List[str], scores: np.ndarray,
+                        k: int = TOP_K) -> int:
+    """Number of distinct Bemis-Murcko scaffolds among the top-k molecules
+    by canonical reward. Speaks to the same molecules Table 2 and Table 3
+    rank, so it uses the canonical score, not any surrogate signal."""
+    if len(smiles_list) == 0 or scores.size == 0:
+        return 0
+    order = np.argsort(scores)[::-1]
+    kk = min(k, len(order))
+    top = [smiles_list[i] for i in order[:kk]]
+    scafs = {s for s in (scaffold_smiles(smi) for smi in top)
+             if s is not None}
+    return len(scafs)
+
+
 def filter_pass_rate(smiles_list: List[str], catalog_name: str
                      ) -> float:
     params = FilterCatalog.FilterCatalogParams()
@@ -212,6 +227,7 @@ def comparison_row(name: str, rl_scores: np.ndarray,
 
 
 def distribution_row(name: str, smiles_list: List[str],
+                     scores: np.ndarray,
                      reference_props: dict,
                      reference_smiles: List[str]) -> dict:
     pool_props = property_array(smiles_list)
@@ -220,6 +236,7 @@ def distribution_row(name: str, smiles_list: List[str],
             "fcd": fcd_distance(smiles_list, reference_smiles,
                                 FCD_DEVICE),
             "scaffold_dominance": largest_scaffold_fraction(smiles_list),
+            "top10_scaffolds": topk_scaffold_count(smiles_list, scores),
             "pains_pass": filter_pass_rate(smiles_list, "PAINS"),
             "brenk_pass": filter_pass_rate(smiles_list, "BRENK")}
 
@@ -324,12 +341,13 @@ def print_significance(rows: List[dict]):
 def print_distribution(rows: List[dict]):
     print("\nDistribution metrics - vs active antibiotics reference:")
     print(f"  {'pool':<20} {'kl':>7} {'fcd':>8} {'scaff_dom':>10} "
-          f"{'pains':>7} {'brenk':>7}")
+          f"{'top10_sc':>9} {'pains':>7} {'brenk':>7}")
     for r in rows:
         fcd_str = (f"{r['fcd']:>8.3f}" if not np.isnan(r['fcd'])
                    else f"{'n/a':>8}")
         print(f"  {r['pool']:<20} {r['property_kl']:>7.3f} {fcd_str} "
               f"{r['scaffold_dominance']:>10.4f} "
+              f"{r['top10_scaffolds']:>9d} "
               f"{r['pains_pass']:>7.3f} {r['brenk_pass']:>7.3f}")
 
 
@@ -405,11 +423,12 @@ def main():
     reference_smi = active_smiles()
     print(f"\nReference: {len(reference_smi):,} active antibiotics")
     reference_props = property_array(reference_smi)
-    pool_specs = [("rl", rl_smi)] + [(n, smi) for n, (smi, _)
-                                     in pools.items()]
-    dist_rows = [distribution_row(n, smi, reference_props,
+    pool_specs = [("rl", rl_smi, rl_scores)] + [(n, smi, sc)
+                                                for n, (smi, sc)
+                                                in pools.items()]
+    dist_rows = [distribution_row(n, smi, sc, reference_props,
                                   reference_smi)
-                 for n, smi in pool_specs]
+                 for n, smi, sc in pool_specs]
     df_pool = pd.DataFrame({"smiles": rl_smi, "score": rl_scores})
     phase_df, quintile_df = training_dynamics(df_pool)
     print_significance(sig_rows)
